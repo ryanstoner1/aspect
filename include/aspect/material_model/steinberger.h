@@ -204,7 +204,27 @@ namespace aspect
         void
         create_additional_named_outputs (MaterialModel::MaterialModelOutputs<dim> &out) const override;
 
+        /**
+         * A function that returns whether the material is plastically yielding at
+         * the given pressure, temperature, composition, and strain rate.
+         *
+         * @deprecated: Use the other function with this name instead, which allows
+         * to pass in more general input variables.
+         */
+        DEAL_II_DEPRECATED
+        bool
+        is_yielding (const double pressure,
+                     const double temperature,
+                     const std::vector<double> &composition,
+                     const SymmetricTensor<2,dim> &strain_rate) const;
 
+        /**
+         * A function that returns whether the material is plastically
+         * yielding at the given input variables (pressure, temperature,
+         * composition, strain rate, and so on).
+         */
+        bool
+        is_yielding (const MaterialModelInputs<dim> &in) const;
       private:
         /**
  *          * Pointer to the object used to compute the rheological properties.
