@@ -128,6 +128,101 @@ namespace aspect
     }
 
 
+    template <int dim>
+    bool
+    Steinberger<dim>::
+    is_yielding (const double pressure,
+                 const double temperature,
+                 const std::vector<double> &composition,
+                 const SymmetricTensor<2,dim> &strain_rate) const
+    {
+      /* The following returns whether or not the material is plastically yielding
+       * as documented in evaluate.
+       */
+      bool plastic_yielding = false;
+
+      MaterialModel::MaterialModelInputs <dim> in (/*n_evaluation_points=*/1,
+                                                                           this->n_compositional_fields());
+      unsigned int i = 0;
+
+      in.pressure[i] = pressure;
+      in.temperature[i] = temperature;
+      in.composition[i] = composition;
+      in.strain_rate[i] = strain_rate;
+
+      const std::vector<double> volume_fractions
+        = MaterialUtilities::compute_composition_fractions(composition,
+                                                           rheology->get_volumetric_composition_mask());
+
+      const IsostrainViscosities isostrain_viscosities
+        = rheology->calculate_isostrain_viscosities(in, i, volume_fractions);
+
+      std::vector<double>::const_iterator max_composition
+        = std::max_element(volume_fractions.begin(),volume_fractions.end());
+
+      plastic_yielding = isostrain_viscosities.composition_yielding[std::distance(volume_fractions.begin(),
+                                                                                  max_composition)];
+
+      return plastic_yielding;
+    }
+
+
+    // TODO: equation_of_state -> thermodynamic_table_lookup -> 3 args 
+    //
+    // template <int dim>
+    // bool
+    // Steinberger<dim>::
+    // is_yielding(const MaterialModelInputs<dim> &in) const
+    // {
+    //   Assert(in.n_evaluation_points() == 1, ExcInternalError());
+
+    //   const std::vector<double> volume_fractions = MaterialUtilities::compute_composition_fractions(in.composition[0], rheology->get_volumetric_composition_mask());
+
+    //   /* The following handles phases in a similar way as in the 'evaluate' function.
+    //    * Results then enter the calculation of plastic yielding.
+    //    */
+    //   std::vector<double> phase_function_values(phase_function.n_phase_transitions(), 0.0);
+
+    //   if (phase_function.n_phase_transitions() > 0)
+    //     {
+    //       const double gravity_norm = this->get_gravity_model().gravity_vector(in.position[0]).norm();
+
+    //       double reference_density;
+    //       if (this->get_adiabatic_conditions().is_initialized())
+    //         {
+    //           reference_density = this->get_adiabatic_conditions().density(in.position[0]);
+    //         }
+    //       else
+    //         {
+    //           EquationOfStateOutputs<dim> eos_outputs_all_phases (this->n_compositional_fields()+1+phase_function.n_phase_transitions());
+    //           equation_of_state.evaluate(in, 0, eos_outputs_all_phases);
+    //           reference_density = eos_outputs_all_phases.densities[0];
+    //         }
+
+    //       MaterialUtilities::PhaseFunctionInputs<dim> phase_inputs(in.temperature[0],
+    //                                                                in.pressure[0],
+    //                                                                this->get_geometry_model().depth(in.position[0]),
+    //                                                                gravity_norm*reference_density,
+    //                                                                numbers::invalid_unsigned_int);
+
+    //       for (unsigned int j=0; j < phase_function.n_phase_transitions(); j++)
+    //         {
+    //           phase_inputs.phase_index = j;
+    //           phase_function_values[j] = phase_function.compute_value(phase_inputs);
+    //         }
+    //     }
+
+    //   /* The following returns whether or not the material is plastically yielding
+    //    * as documented in evaluate.
+    //    */
+    //   const IsostrainViscosities isostrain_viscosities = rheology->calculate_isostrain_viscosities(in, 0, volume_fractions, phase_function_values, phase_function.n_phase_transitions_for_each_composition());
+
+    //   std::vector<double>::const_iterator max_composition = std::max_element(volume_fractions.begin(), volume_fractions.end());
+    //   const bool plastic_yielding = isostrain_viscosities.composition_yielding[std::distance(volume_fractions.begin(), max_composition)];
+
+    //   return plastic_yielding;
+    // }
+
 
     template <int dim>
     void
@@ -350,8 +445,26 @@ namespace aspect
         prm.enter_subsection("Steinberger model");
         {
         Rheology::ViscoPlastic<dim>::declare_parameters(prm);  
-	MaterialUtilities::PhaseFunction<dim>::declare_parameters(prm);
-	prm.declare_entry ("Data directory", "$ASPECT_SOURCE_DIR/data/material-model/steinberger/",
+	      MaterialUtilities::PhaseFunction<dim>::declare_parameters(prm);
+        // Equation of state parameters
+        prm.declare_entry ("Thermal diffusivities", "0.8e-6",
+                            Patterns::List(Patterns::Double (0.)),
+                            "List of thermal diffusivities, for background material and compositional fields, "
+                            "for a total of N+1 values, where N is the number of compositional fields. "
+                            "If only one value is given, then all use the same value.  "
+                            "Units: \\si{\\meter\\squared\\per\\second}.");
+        prm.declare_entry ("Define thermal conductivities","false",
+                            Patterns::Bool (),
+                            "Whether to directly define thermal conductivities for each compositional field "
+                            "instead of calculating the values through the specified thermal diffusivities, "
+                            "densities, and heat capacities. ");
+        prm.declare_entry ("Thermal conductivities", "3.0",
+                            Patterns::List(Patterns::Double(0)),
+                            "List of thermal conductivities, for background material and compositional fields, "
+                            "for a total of N+1 values, where N is the number of compositional fields. "
+                            "If only one value is given, then all use the same value. "
+                            "Units: \\si{\\watt\\per\\meter\\per\\kelvin}.");
+	      prm.declare_entry ("Data directory", "$ASPECT_SOURCE_DIR/data/material-model/steinberger/",
                              Patterns::DirectoryName (),
                              "The path to the model data. The path may also include the special "
                              "text '$ASPECT_SOURCE_DIR' which will be interpreted as the path "
@@ -466,6 +579,8 @@ namespace aspect
     void
     Steinberger<dim>::parse_parameters (ParameterHandler &prm)
     {
+      // increment by one for background:
+      const unsigned int n_fields = this->n_compositional_fields() + 1;
       prm.enter_subsection("Material model");
       {
         prm.enter_subsection("Steinberger model");

@@ -327,7 +327,13 @@ namespace aspect
 
             for (unsigned int j=0; j<eos_outputs[i].densities.size(); ++j)
               {
-                eos_outputs[i].densities[j] = material_lookup[j]->density(temperature, pressure);
+                if (j==1)
+                  {
+                    eos_outputs[i].densities[j] = material_lookup[j]->density(temperature, pressure);
+                  } else {
+                    eos_outputs[i].densities[j] = material_lookup[j]->density(temperature, pressure);
+                  }
+                
                 eos_outputs[i].compressibilities[j] = material_lookup[j]->dRhodp(temperature, pressure)/eos_outputs[i].densities[j];
 
                 // Only calculate the non-reactive specific heat and
