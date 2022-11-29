@@ -87,13 +87,14 @@ namespace aspect
            */
           static
           void
-          declare_parameters (ParameterHandler &prm);
+          declare_parameters (ParameterHandler &prm,const double default_thermal_expansion = 3.5e-5);
 
           /**
            * Read the parameters this class declares from the parameter file.
            */
           void
-          parse_parameters (ParameterHandler &prm);
+          parse_parameters (ParameterHandler &prm,
+                            const std::unique_ptr<std::vector<unsigned int>> &expected_n_phases_per_composition = nullptr);
 
           void
           create_additional_named_outputs (MaterialModel::MaterialModelOutputs<dim> &out) const;
@@ -103,6 +104,30 @@ namespace aspect
 
 
         private:
+          /**
+ *            * Vector of reference densities $\rho_0$ with one entry per composition and phase plus one
+ *                       * for the background field.
+ *                                  */
+          std::vector<double> densities;
+
+          /**
+ *            * The reference temperature $T_0$ used in the computation of the density.
+ *                       * All components use the same reference temperature.
+ *                                  */
+          double reference_T;
+
+          /**
+ *            * Vector of thermal expansivities with one entry per composition and phase plus one
+ *                       * for the background field.
+ *                                  */
+          std::vector<double> thermal_expansivities;
+
+          /**
+ *            * Vector of specific heat capacities with one entry per composition and phase plus one
+ *                       * for the background field.
+ *                                  */
+          std::vector<double> specific_heats;
+
           unsigned int n_material_lookups;
           bool use_bilinear_interpolation;
           bool latent_heat;

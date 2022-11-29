@@ -436,9 +436,30 @@ namespace aspect
 
       template <int dim>
       void
-      ThermodynamicTableLookup<dim>::declare_parameters (ParameterHandler &prm)
+      ThermodynamicTableLookup<dim>::declare_parameters (ParameterHandler &prm, const double default_thermal_expansion)
       {
-        prm.declare_entry ("Data directory", "$ASPECT_SOURCE_DIR/data/material-model/steinberger/",
+        prm.declare_entry ("Reference temperature", "293.",
+                           Patterns::Double (0.),
+                           "The reference temperature $T_0$. Units: \\si{\\kelvin}.");
+        prm.declare_entry ("Densities", "3300.",
+                           Patterns::Anything(),
+                           "List of densities for background mantle and compositional fields,"
+                           "for a total of N+M+1 values, where N is the number of compositional fields and M is the number of phases. "
+                           "If only one value is given, then all use the same value. "
+                           "Units: \\si{\\kilogram\\per\\meter\\cubed}.");
+        prm.declare_entry ("Thermal expansivities", std::to_string(default_thermal_expansion),
+                           Patterns::Anything(),
+                           "List of thermal expansivities for background mantle and compositional fields,"
+                           "for a total of N+M+1 values, where N is the number of compositional fields and M is the number of phases. "
+                           "If only one value is given, then all use the same value. Units: \\si{\\per\\kelvin}.");
+        prm.declare_entry ("Heat capacities", "1250.",
+                           Patterns::Anything(),
+                           "List of specific heats $C_p$ for background mantle and compositional fields,"
+                           "for a total of N+M+1 values, where N is the number of compositional fields and M is the number of phases. "
+                           "If only one value is given, then all use the same value. "
+                           "Units: \\si{\\joule\\per\\kelvin\\per\\kilogram}.");
+        prm.declare_alias ("Heat capacities", "Specific heats");
+	prm.declare_entry ("Data directory", "$ASPECT_SOURCE_DIR/data/material-model/steinberger/",
                            Patterns::DirectoryName (),
                            "The path to the model data. The path may also include the special "
                            "text '$ASPECT_SOURCE_DIR' which will be interpreted as the path "
@@ -495,9 +516,12 @@ namespace aspect
 
       template <int dim>
       void
-      ThermodynamicTableLookup<dim>::parse_parameters (ParameterHandler &prm)
+      ThermodynamicTableLookup<dim>::parse_parameters (ParameterHandler &prm,
+                            const std::unique_ptr<std::vector<unsigned int>> &expected_n_phases_per_composition)
       {
-        data_directory               = Utilities::expand_ASPECT_SOURCE_DIR(prm.get ("Data directory"));
+        reference_T = prm.get_double ("Reference temperature");
+	
+	data_directory               = Utilities::expand_ASPECT_SOURCE_DIR(prm.get ("Data directory"));
         material_file_names          = Utilities::split_string_list(prm.get ("Material file names"));
         n_material_lookups           = material_file_names.size();
 
@@ -516,7 +540,34 @@ namespace aspect
         if (latent_heat)
           AssertThrow (n_material_lookups == 1,
                        ExcMessage("Isochemical latent heat calculations are only implemented for a single material lookup."));
+        
+        // Establish that a background field is required here
+        const bool has_background_field = true;
 
+        // Retrieve the list of composition names
+        const std::vector<std::string> list_of_composition_names = this->introspection().get_composition_names();
+
+        // Parse multicomponent properties
+        densities = Utilities::parse_map_to_double_array (prm.get("Densities"),
+                                                          list_of_composition_names,
+                                                          has_background_field,
+                                                          "Densities",
+                                                          true,
+                                                          expected_n_phases_per_composition);
+
+        thermal_expansivities = Utilities::parse_map_to_double_array (prm.get("Thermal expansivities"),
+                                                                      list_of_composition_names,
+                                                                      has_background_field,
+                                                                      "Thermal expansivities",
+                                                                      true,
+                                                                      expected_n_phases_per_composition);
+
+        specific_heats = Utilities::parse_map_to_double_array (prm.get("Heat capacities"),
+                                                               list_of_composition_names,
+                                                               has_background_field,
+                                                               "Specific heats",
+                                                               true,
+                                                               expected_n_phases_per_composition);
       }
 
 

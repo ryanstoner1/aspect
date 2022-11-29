@@ -23,6 +23,8 @@
 
 #include <aspect/material_model/interface.h>
 #include <aspect/material_model/equation_of_state/thermodynamic_table_lookup.h>
+#include <aspect/material_model/rheology/visco_plastic.h>
+
 
 #include <aspect/simulator_access.h>
 #include <deal.II/fe/component_mask.h>
@@ -62,7 +64,7 @@ namespace aspect
            */
           int get_nslices() const;
         private:
-          /**
+	  /**
            * Stored values
            */
           std::vector<double> values;
@@ -205,6 +207,27 @@ namespace aspect
 
       private:
         /**
+ *          * Pointer to the object used to compute the rheological properties.
+ *                   * In this case, the rheology in question is visco(elasto)plastic. The
+ *                            * object contains functions for parameter declaration and parsing,
+ *                                     * and further functions that calculate viscosity and viscosity
+ *                                              * derivatives. It also contains functions that create and fill
+ *                                                       * additional material model outputs, specifically plastic outputs.
+ *                                                                * The rheology itself is a composite rheology, and so the object
+ *                                                                         * contains further objects and/or pointers to objects that provide
+ *                                                                                  * functions and parameters for all subordinate rheologies.
+ *                                                                                           */
+        std::unique_ptr<Rheology::ViscoPlastic<dim>> rheology;
+
+        std::vector<double> thermal_diffusivities;
+
+        /**
+ *          * Whether to use user-defined thermal conductivities instead of thermal diffusivities.
+ *                   */
+        bool define_conductivities;
+
+        std::vector<double> thermal_conductivities;        
+	/**
          * Compute the pressure- and temperature-dependent thermal
          * conductivity either as a constant value, or based on the
          * equation given in Stackhouse et al., 2015: First-principles
@@ -242,7 +265,8 @@ namespace aspect
          */
         EquationOfState::ThermodynamicTableLookup<dim> equation_of_state;
 
-        /**
+        MaterialUtilities::PhaseFunction<dim> phase_function;
+	/**
          * Boolean describing whether to use the lateral average temperature
          * for computing the viscosity, rather than the temperature
          * on the reference adiabat.

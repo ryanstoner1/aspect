@@ -349,7 +349,9 @@ namespace aspect
       {
         prm.enter_subsection("Steinberger model");
         {
-          prm.declare_entry ("Data directory", "$ASPECT_SOURCE_DIR/data/material-model/steinberger/",
+        Rheology::ViscoPlastic<dim>::declare_parameters(prm);  
+	MaterialUtilities::PhaseFunction<dim>::declare_parameters(prm);
+	prm.declare_entry ("Data directory", "$ASPECT_SOURCE_DIR/data/material-model/steinberger/",
                              Patterns::DirectoryName (),
                              "The path to the model data. The path may also include the special "
                              "text '$ASPECT_SOURCE_DIR' which will be interpreted as the path "
@@ -372,14 +374,6 @@ namespace aspect
           prm.declare_entry ("Number lateral average bands", "10",
                              Patterns::Integer (1),
                              "Number of bands to compute laterally averaged temperature within.");
-          prm.declare_entry ("Minimum viscosity", "1e19",
-                             Patterns::Double (0.),
-                             "The minimum viscosity that is allowed in the viscosity "
-                             "calculation. Smaller values will be cut off.");
-          prm.declare_entry ("Maximum viscosity", "1e23",
-                             Patterns::Double (0.),
-                             "The maximum viscosity that is allowed in the viscosity "
-                             "calculation. Larger values will be cut off.");
           prm.declare_entry ("Maximum lateral viscosity variation", "1e2",
                              Patterns::Double (0.),
                              "The relative cutoff value for lateral viscosity variations "
@@ -476,14 +470,23 @@ namespace aspect
       {
         prm.enter_subsection("Steinberger model");
         {
-          data_directory = Utilities::expand_ASPECT_SOURCE_DIR(prm.get ("Data directory"));
+          phase_function.initialize_simulator (this->get_simulator());
+	  phase_function.parse_parameters (prm);
+	  std::vector<unsigned int> n_phase_transitions_for_each_composition
+          (phase_function.n_phase_transitions_for_each_composition());
+          // We require one more entry for density, etc as there are phase transitions
+          // (for the low-pressure phase before any transition).
+          for (unsigned int &n : n_phase_transitions_for_each_composition)
+          	n += 1;
+
+	  data_directory = Utilities::expand_ASPECT_SOURCE_DIR(prm.get ("Data directory"));
           radial_viscosity_file_name   = prm.get ("Radial viscosity file name");
           lateral_viscosity_file_name  = prm.get ("Lateral viscosity file name");
           use_lateral_average_temperature = prm.get_bool ("Use lateral average temperature for viscosity");
           n_lateral_slices = prm.get_integer("Number lateral average bands");
-          min_eta              = prm.get_double ("Minimum viscosity");
-          max_eta              = prm.get_double ("Maximum viscosity");
-          max_lateral_eta_variation    = prm.get_double ("Maximum lateral viscosity variation");
+          min_eta              = 1e19; // prm.get_double ("Minimum viscosity");
+          max_eta              = 1e23; // prm.get_double ("Maximum viscosity");
+          max_lateral_eta_variation = 1e3; // prm.get_double ("Maximum lateral viscosity variation");
           thermal_conductivity_value = prm.get_double ("Thermal conductivity");
 
           // Rheological parameters
@@ -520,9 +523,25 @@ namespace aspect
 
           // Parse the table lookup parameters
           equation_of_state.initialize_simulator (this->get_simulator());
-          equation_of_state.parse_parameters(prm);
+          equation_of_state.parse_parameters(prm,
+                                              std::make_unique<std::vector<unsigned int>>(n_phase_transitions_for_each_composition));
 
-          // Check if compositional fields represent a composition
+
+          thermal_diffusivities = Utilities::possibly_extend_from_1_to_N (Utilities::string_to_double(Utilities::split_string_list(prm.get("Thermal diffusivities"))),
+                                                                          n_fields,
+                                                                          "Thermal diffusivities");
+
+          define_conductivities = prm.get_bool ("Define thermal conductivities");
+
+          thermal_conductivities = Utilities::possibly_extend_from_1_to_N (Utilities::string_to_double(Utilities::split_string_list(prm.get("Thermal conductivities"))),
+                                                                           n_fields,
+                                                                           "Thermal conductivities");
+
+          rheology = std::make_unique<Rheology::ViscoPlastic<dim>>();
+          rheology->initialize_simulator (this->get_simulator());
+          rheology->parse_parameters(prm, std::make_unique<std::vector<unsigned int>>(n_phase_transitions_for_each_composition));
+   
+	// Check if compositional fields represent a composition
           const std::vector<typename Parameters<dim>::CompositionalFieldDescription> composition_descriptions = this->introspection().get_composition_descriptions();
 
           // All chemical compositional fields are assumed to represent mass fractions.
