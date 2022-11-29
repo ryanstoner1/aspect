@@ -127,44 +127,44 @@ namespace aspect
       }
     }
 
+    // TODO: causes compilation to fail
+    // template <int dim>
+    // bool
+    // Steinberger<dim>::
+    // is_yielding (const double pressure,
+    //              const double temperature,
+    //              const std::vector<double> &composition,
+    //              const SymmetricTensor<2,dim> &strain_rate) const
+    // {
+    //   /* The following returns whether or not the material is plastically yielding
+    //    * as documented in evaluate.
+    //    */
+    //   bool plastic_yielding = false;
 
-    template <int dim>
-    bool
-    Steinberger<dim>::
-    is_yielding (const double pressure,
-                 const double temperature,
-                 const std::vector<double> &composition,
-                 const SymmetricTensor<2,dim> &strain_rate) const
-    {
-      /* The following returns whether or not the material is plastically yielding
-       * as documented in evaluate.
-       */
-      bool plastic_yielding = false;
+    //   MaterialModel::MaterialModelInputs <dim> in (/*n_evaluation_points=*/1,
+    //                                                                        this->n_compositional_fields());
+    //   unsigned int i = 0;
 
-      MaterialModel::MaterialModelInputs <dim> in (/*n_evaluation_points=*/1,
-                                                                           this->n_compositional_fields());
-      unsigned int i = 0;
+    //   in.pressure[i] = pressure;
+    //   in.temperature[i] = temperature;
+    //   in.composition[i] = composition;
+    //   in.strain_rate[i] = strain_rate;
 
-      in.pressure[i] = pressure;
-      in.temperature[i] = temperature;
-      in.composition[i] = composition;
-      in.strain_rate[i] = strain_rate;
+    //   const std::vector<double> volume_fractions
+    //     = MaterialUtilities::compute_composition_fractions(composition,
+    //                                                        rheology->get_volumetric_composition_mask());
 
-      const std::vector<double> volume_fractions
-        = MaterialUtilities::compute_composition_fractions(composition,
-                                                           rheology->get_volumetric_composition_mask());
+    //   const IsostrainViscosities isostrain_viscosities
+    //     = rheology->calculate_isostrain_viscosities(in, i, volume_fractions);
 
-      const IsostrainViscosities isostrain_viscosities
-        = rheology->calculate_isostrain_viscosities(in, i, volume_fractions);
+    //   std::vector<double>::const_iterator max_composition
+    //     = std::max_element(volume_fractions.begin(),volume_fractions.end());
 
-      std::vector<double>::const_iterator max_composition
-        = std::max_element(volume_fractions.begin(),volume_fractions.end());
+    //   plastic_yielding = isostrain_viscosities.composition_yielding[std::distance(volume_fractions.begin(),
+    //                                                                               max_composition)];
 
-      plastic_yielding = isostrain_viscosities.composition_yielding[std::distance(volume_fractions.begin(),
-                                                                                  max_composition)];
-
-      return plastic_yielding;
-    }
+    //   return plastic_yielding;
+    // }
 
 
     // TODO: equation_of_state -> thermodynamic_table_lookup -> 3 args 
