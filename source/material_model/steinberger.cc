@@ -381,6 +381,28 @@ namespace aspect
           // First compute the equation of state variables and thermodynamic properties
           equation_of_state_viscoplas.evaluate(in, i, eos_outputs_all_phases);
 
+          const double gravity_norm = this->get_gravity_model().gravity_vector(in.position[i]).norm();
+          const double reference_density = (this->get_adiabatic_conditions().is_initialized())
+                                           ?
+                                           this->get_adiabatic_conditions().density(in.position[i])
+                                           :
+                                           eos_outputs_all_phases.densities[0];
+
+          // The phase index is set to invalid_unsigned_int, because it is only used internally
+          // in phase_average_equation_of_state_outputs to loop over all existing phases
+          MaterialUtilities::PhaseFunctionInputs<dim> phase_inputs(in.temperature[i],
+                                                                   in.pressure[i],
+                                                                   this->get_geometry_model().depth(in.position[i]),
+                                                                   gravity_norm*reference_density,
+                                                                   numbers::invalid_unsigned_int);
+
+          // Compute value of phase functions
+          for (unsigned int j=0; j < phase_function.n_phase_transitions(); j++)
+            {
+              phase_inputs.phase_index = j;
+              phase_function_values[j] = phase_function.compute_value(phase_inputs);
+            }
+            
           if (in.requests_property(MaterialProperties::viscosity))
             out.viscosities[i] = viscosity(in.temperature[i], in.pressure[i], in.composition[i], in.strain_rate[i], in.position[i]);
 
