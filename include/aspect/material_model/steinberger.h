@@ -23,6 +23,7 @@
 
 #include <aspect/material_model/interface.h>
 #include <aspect/material_model/equation_of_state/thermodynamic_table_lookup.h>
+#include <aspect/material_model/equation_of_state/multicomponent_incompressible.h>
 #include <aspect/material_model/rheology/visco_plastic.h>
 
 
@@ -279,6 +280,11 @@ namespace aspect
          * averaging of material properties.
          */
         std::unique_ptr<ComponentMask> composition_mask;
+
+        /**
+         * Object for computing the equation of state.
+         */
+        EquationOfState::MulticomponentIncompressible<dim> equation_of_state_viscoplas;
 
         /**
          * The thermodynamic lookup equation of state.
