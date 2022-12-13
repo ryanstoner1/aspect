@@ -354,6 +354,16 @@ namespace aspect
     Steinberger<dim>::evaluate(const MaterialModel::MaterialModelInputs<dim> &in,
                                MaterialModel::MaterialModelOutputs<dim> &out) const
     {
+      // added visco_plastic
+      const ComponentMask volumetric_compositions = rheology->get_volumetric_composition_mask();
+            EquationOfStateOutputs<dim> eos_outputs_all_phases (this->n_compositional_fields()+1+phase_function.n_phase_transitions());
+      std::vector<double> average_elastic_shear_moduli (in.n_evaluation_points());
+
+      // Store value of phase function for each phase and composition
+      // While the number of phases is fixed, the value of the phase function is updated for every point
+      std::vector<double> phase_function_values(phase_function.n_phase_transitions(), 0.0);
+      // end added visco_plastic
+      
       std::vector<EquationOfStateOutputs<dim>> eos_outputs (in.n_evaluation_points(), equation_of_state.number_of_lookups());
       std::vector<std::vector<double>> volume_fractions (in.n_evaluation_points(), std::vector<double> (equation_of_state.number_of_lookups()));
 
