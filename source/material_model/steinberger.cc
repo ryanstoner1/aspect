@@ -378,6 +378,9 @@ namespace aspect
 
       for (unsigned int i=0; i < in.n_evaluation_points(); ++i)
         {
+          // First compute the equation of state variables and thermodynamic properties
+          equation_of_state_viscoplas.evaluate(in, i, eos_outputs_all_phases);
+
           if (in.requests_property(MaterialProperties::viscosity))
             out.viscosities[i] = viscosity(in.temperature[i], in.pressure[i], in.composition[i], in.strain_rate[i], in.position[i]);
 
@@ -651,6 +654,9 @@ namespace aspect
           equation_of_state.parse_parameters(prm,
                                               std::make_unique<std::vector<unsigned int>>(n_phase_transitions_for_each_composition));
 
+          equation_of_state_viscoplas.initialize_simulator (this->get_simulator());
+          equation_of_state_viscoplas.parse_parameters(prm,
+                                              std::make_unique<std::vector<unsigned int>>(n_phase_transitions_for_each_composition));
 
           thermal_diffusivities = Utilities::possibly_extend_from_1_to_N (Utilities::string_to_double(Utilities::split_string_list(prm.get("Thermal diffusivities"))),
                                                                           n_fields,
