@@ -75,6 +75,17 @@ namespace aspect
                    std::vector<MaterialModel::EquationOfStateOutputs<dim>> &eos_outputs) const;
 
           /**
+           * A function that computes the output of the equation of state @p out
+           * for all compositions and phases, given the inputs in @p in, material lookup tables, and an
+           * index input_index that determines which entry of the vector of inputs is used.
+           */
+          void
+          evaluate_phases(const MaterialModel::MaterialModelInputs<dim> &in,
+               const unsigned int input_index,
+               MaterialModel::EquationOfStateOutputs<dim> &out,
+               std::vector<MaterialModel::EquationOfStateOutputs<dim>> &eos_outputs) const;          
+
+          /**
            * Function to fill the seismic velocity and phase volume additional outputs
            */
           void
@@ -104,6 +115,12 @@ namespace aspect
 
 
         private:
+          /**
+          * Vector of lookup tables to be used
+          */
+          std::vector<double> phases_using_material_files;
+
+
           /**
  *            * Vector of reference densities $\rho_0$ with one entry per composition and phase plus one
  *                       * for the background field.
