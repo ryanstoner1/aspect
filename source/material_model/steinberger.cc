@@ -379,7 +379,7 @@ namespace aspect
       for (unsigned int i=0; i < in.n_evaluation_points(); ++i)
         {
           // First compute the equation of state variables and thermodynamic properties
-          equation_of_state_viscoplas.evaluate(in, i, eos_outputs_all_phases);
+          equation_of_state.evaluate_phases(in, i, eos_outputs_all_phases, eos_outputs);
 
           const double gravity_norm = this->get_gravity_model().gravity_vector(in.position[i]).norm();
           const double reference_density = (this->get_adiabatic_conditions().is_initialized())

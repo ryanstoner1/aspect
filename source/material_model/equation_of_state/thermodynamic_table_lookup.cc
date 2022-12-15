@@ -356,7 +356,37 @@ namespace aspect
           }
       }
 
+      template <int dim>
+      void
+      ThermodynamicTableLookup<dim>::
+      evaluate_phases(const MaterialModel::MaterialModelInputs<dim> &in,
+               const unsigned int input_index,
+               MaterialModel::EquationOfStateOutputs<dim> &out,
+               std::vector<MaterialModel::EquationOfStateOutputs<dim>> &eos_outputs) const
+      {
 
+
+        // If adiabatic heating is used, the reference temperature used to calculate density should be the adiabatic
+        // temperature at the current position. This definition is consistent with the Extended Boussinesq Approximation.
+        const double reference_temperature = (this->include_adiabatic_heating()
+                                              ?
+                                              this->get_adiabatic_conditions().temperature(in.position[input_index])
+                                              :
+                                              reference_T);
+
+        for (unsigned int c=0; c < out.densities.size(); ++c)
+          {
+            out.densities[c] = densities[c] * (1 - thermal_expansivities[c] * (in.temperature[input_index] - reference_temperature));
+            out.thermal_expansion_coefficients[c] = thermal_expansivities[c];
+            out.specific_heat_capacities[c] = specific_heats[c];
+            out.compressibilities[c] = 0.0;
+            out.entropy_derivative_pressure[c] = 0.0;
+            out.entropy_derivative_temperature[c] = 0.0;
+            if (phases_using_material_files[c]==1) {
+              out.densities[i] = eos_outputs[input_index].densities[int(phases_using_material_files[c])];
+            }
+          }
+      }
 
       template <int dim>
       void
@@ -447,6 +477,11 @@ namespace aspect
         prm.declare_entry ("Reference temperature", "293.",
                            Patterns::Double (0.),
                            "The reference temperature $T_0$. Units: \\si{\\kelvin}.");
+        prm.declare_entry ("Phases using material files", "0.0",
+                          Patterns::Anything(),
+                          "List of densities for background mantle and compositional fields,"
+                          "for a total of N+M+1 values, where N is the number of compositional fields and M is the number of phases. "
+                          "If only one value is given, then all use the same value. ");                           
         prm.declare_entry ("Densities", "3300.",
                            Patterns::Anything(),
                            "List of densities for background mantle and compositional fields,"
@@ -465,13 +500,13 @@ namespace aspect
                            "If only one value is given, then all use the same value. "
                            "Units: \\si{\\joule\\per\\kelvin\\per\\kilogram}.");
         prm.declare_alias ("Heat capacities", "Specific heats");
-	prm.declare_entry ("Data directory", "$ASPECT_SOURCE_DIR/data/material-model/steinberger/",
-                           Patterns::DirectoryName (),
-                           "The path to the model data. The path may also include the special "
-                           "text '$ASPECT_SOURCE_DIR' which will be interpreted as the path "
-                           "in which the ASPECT source files were located when ASPECT was "
-                           "compiled. This interpretation allows, for example, to reference "
-                           "files located in the `data/' subdirectory of ASPECT. ");
+        prm.declare_entry ("Data directory", "$ASPECT_SOURCE_DIR/data/material-model/steinberger/",
+                                Patterns::DirectoryName (),
+                                "The path to the model data. The path may also include the special "
+                                "text '$ASPECT_SOURCE_DIR' which will be interpreted as the path "
+                                "in which the ASPECT source files were located when ASPECT was "
+                                "compiled. This interpretation allows, for example, to reference "
+                                "files located in the `data/' subdirectory of ASPECT. ");
         prm.declare_entry ("Material file names", "pyr-ringwood88.txt",
                            Patterns::List (Patterns::Anything()),
                            "The file names of the material data (material "
@@ -527,7 +562,7 @@ namespace aspect
       {
         reference_T = prm.get_double ("Reference temperature");
 	
-	data_directory               = Utilities::expand_ASPECT_SOURCE_DIR(prm.get ("Data directory"));
+	      data_directory               = Utilities::expand_ASPECT_SOURCE_DIR(prm.get ("Data directory"));
         material_file_names          = Utilities::split_string_list(prm.get ("Material file names"));
         n_material_lookups           = material_file_names.size();
 
@@ -554,6 +589,13 @@ namespace aspect
         const std::vector<std::string> list_of_composition_names = this->introspection().get_composition_names();
 
         // Parse multicomponent properties
+        phases_using_material_files = Utilities::parse_map_to_double_array (prm.get("Phases using material files"),
+                                                          list_of_composition_names,
+                                                          has_background_field,
+                                                          "Phases using material files",
+                                                          true,
+                                                          expected_n_phases_per_composition);
+
         densities = Utilities::parse_map_to_double_array (prm.get("Densities"),
                                                           list_of_composition_names,
                                                           has_background_field,
