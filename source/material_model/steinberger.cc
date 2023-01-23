@@ -402,9 +402,13 @@ namespace aspect
               phase_inputs.phase_index = j;
               phase_function_values[j] = phase_function.compute_value(phase_inputs);
             }
-            
-          if (in.requests_property(MaterialProperties::viscosity))
-            out.viscosities[i] = viscosity(in.temperature[i], in.pressure[i], in.composition[i], in.strain_rate[i], in.position[i]);
+
+          // Average by value of gamma function to get value of compositions
+          phase_average_equation_of_state_outputs(eos_outputs_all_phases,
+                                                  phase_function_values,
+                                                  phase_function.n_phase_transitions_for_each_composition(),
+                                                  eos_outputs[i]);
+
 
           out.thermal_conductivities[i] = thermal_conductivity(in.temperature[i], in.pressure[i], in.position[i]);
           for (unsigned int c=0; c<in.composition[i].size(); ++c)
@@ -439,12 +443,37 @@ namespace aspect
           volume_fractions[i] = MaterialUtilities::compute_volumes_from_masses(mass_fractions,
                                                                                eos_outputs[i].densities,
                                                                                true);
+          const std::vector<double> const_volume_fractions = MaterialUtilities::compute_volumes_from_masses(mass_fractions,
+                                                                               eos_outputs[i].densities,
+                                                                               true);
 
+	  bool plastic_yielding = false;
+          if (in.requests_property(MaterialProperties::viscosity)) {
+            // Currently, the viscosities for each of the compositional fields are calculated assuming
+            // isostrain amongst all compositions, allowing calculation of the viscosity ratio.
+            // TODO: This is only consistent with viscosity averaging if the arithmetic averaging
+            // scheme is chosen. It would be useful to have a function to calculate isostress viscosities.
+            const IsostrainViscosities isostrain_viscosities = rheology->calculate_isostrain_viscosities(in, i, volume_fractions[i], phase_function_values, phase_function.n_phase_transitions_for_each_composition());
+            //out.viscosities[i] = viscosity(in.temperature[i], in.pressure[i], in.composition[i], in.strain_rate[i], in.position[i]);
+             out.viscosities[i] = MaterialUtilities::average_value(volume_fractions[i], isostrain_viscosities.composition_viscosities, rheology->viscosity_averaging);
+
+             // Decide based on the maximum composition if material is yielding.
+             // This avoids for example division by zero for harmonic averaging (as plastic_yielding
+             // holds values that are either 0 or 1), but might not be consistent with the viscosity
+             // averaging chosen.
+              std::vector<double>::const_iterator max_composition = std::max_element(const_volume_fractions.begin(),const_volume_fractions.end());
+              plastic_yielding = isostrain_viscosities.composition_yielding[std::distance(const_volume_fractions.begin(),max_composition)];                                                                       
+          }
+	  rheology->strain_rheology.fill_reaction_outputs(in, i, rheology->min_strain_rate, plastic_yielding, out);
+
+          // Fill plastic outputs if they exist.
+          rheology->fill_plastic_outputs(i,volume_fractions[i],plastic_yielding,in,out, phase_function_values, phase_function.n_phase_transitions_for_each_composition());
           MaterialUtilities::fill_averaged_equation_of_state_outputs(eos_outputs[i], mass_fractions, volume_fractions[i], i, out);
           fill_prescribed_outputs(i, volume_fractions[i], in, out);
         }
 
-      // fill additional outputs if they exist
+      rheology->strain_rheology.compute_finite_strain_reaction_terms(in, out);
+
       equation_of_state.fill_additional_outputs(in, volume_fractions, out);
     }
 

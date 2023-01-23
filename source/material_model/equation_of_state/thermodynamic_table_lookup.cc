@@ -160,7 +160,7 @@ namespace aspect
       ThermodynamicTableLookup<dim>::
       is_compressible () const
       {
-        return true;
+        return false;
       }
 
 
@@ -334,7 +334,7 @@ namespace aspect
                     eos_outputs[i].densities[j] = material_lookup[j]->density(temperature, pressure);
                   }
                 
-                eos_outputs[i].compressibilities[j] = material_lookup[j]->dRhodp(temperature, pressure)/eos_outputs[i].densities[j];
+                eos_outputs[i].compressibilities[j] = 0.0;//material_lookup[j]->dRhodp(temperature, pressure)/eos_outputs[i].densities[j];
 
                 // Only calculate the non-reactive specific heat and
                 // thermal expansivity if latent heat is to be ignored.
@@ -383,7 +383,7 @@ namespace aspect
             out.entropy_derivative_pressure[c] = 0.0;
             out.entropy_derivative_temperature[c] = 0.0;
             if (phases_using_material_files[c]==1) {
-              out.densities[i] = eos_outputs[input_index].densities[int(phases_using_material_files[c])];
+              out.densities[c] = eos_outputs[input_index].densities[int(phases_using_material_files[c])];
             }
           }
       }
