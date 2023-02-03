@@ -86,6 +86,27 @@ namespace aspect
         }
 
         double
+        MaterialLookup::melt(const double temperature,
+                                 const double pressure) const
+        {
+          return value(temperature,pressure,melt_values,false);
+        }
+
+        double
+        MaterialLookup::h2o_fugacity(const double temperature,
+                                 const double pressure) const
+        {
+          return value(temperature,pressure,h2o_fugacity_values,false);
+        }
+
+        unsigned int
+        MaterialLookup::viscosity_flag(const double temperature,
+                                 const double pressure) const
+        {
+          return value(temperature,pressure,rheology_phase_flags);
+        }
+
+        double
         MaterialLookup::dHdT (const double temperature,
                               const double pressure) const
         {
@@ -592,7 +613,7 @@ namespace aspect
           // here we string match to assign properties to columns
           // column i in text file -> column j in properties
           // Properties are stored in the order rho, alpha, cp, vp, vs, h
-          std::vector<int> prp_indices(6, -1);
+          std::vector<int> prp_indices(9, -1);
           std::vector<int> phase_column_indices;
           unsigned int dominant_phase_column_index = numbers::invalid_unsigned_int;
 
@@ -634,6 +655,12 @@ namespace aspect
                 prp_indices[4] = n;
               else if (column_name == "h,J/kg")
                 prp_indices[5] = n;
+              else if (column_name == "flag")
+                prp_indices[6] = n;
+              else if (column_name == "melt")
+                prp_indices[7] = n;                
+              else if (column_name == "fugacity")
+                prp_indices[8] = n;
               else if (column_name == "phase")
                 {
                   has_dominant_phase_column = true;
@@ -686,6 +713,9 @@ namespace aspect
           vp_values.reinit(n_temperature,n_pressure);
           vs_values.reinit(n_temperature,n_pressure);
           enthalpy_values.reinit(n_temperature,n_pressure);
+          rheology_phase_flags.reinit(n_temperature,n_pressure);
+          melt_values.reinit(n_temperature,n_pressure);
+          h2o_fugacity_values.reinit(n_temperature,n_pressure);
 
           if (has_dominant_phase_column)
             dominant_phase_indices.reinit(n_temperature,n_pressure);
@@ -749,6 +779,9 @@ namespace aspect
                   vp_values[i%n_temperature][i/n_temperature]=row_values[prp_indices[3]];
                   vs_values[i%n_temperature][i/n_temperature]=row_values[prp_indices[4]];
                   enthalpy_values[i%n_temperature][i/n_temperature]=row_values[prp_indices[5]];
+                  rheology_phase_flags[i%n_temperature][i/n_temperature]=row_values[prp_indices[6]];
+                  melt_values[i%n_temperature][i/n_temperature]=row_values[prp_indices[7]];
+                  h2o_fugacity_values[i%n_temperature][i/n_temperature]=row_values[prp_indices[8]];
 
                   if (has_dominant_phase_column)
                     {
@@ -769,6 +802,9 @@ namespace aspect
                   vp_values[i/n_pressure][i%n_pressure]=row_values[prp_indices[3]];
                   vs_values[i/n_pressure][i%n_pressure]=row_values[prp_indices[4]];
                   enthalpy_values[i/n_pressure][i%n_pressure]=row_values[prp_indices[5]];
+                  rheology_phase_flags[i/n_pressure][i%n_pressure]=row_values[prp_indices[6]];
+                  melt_values[i/n_pressure][i%n_pressure]=row_values[prp_indices[7]];
+                  h2o_fugacity_values[i/n_pressure][i%n_pressure]=row_values[prp_indices[8]];
 
                   if (has_dominant_phase_column)
                     {
