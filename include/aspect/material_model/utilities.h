@@ -82,6 +82,17 @@ namespace aspect
             enthalpy(const double temperature,
                      const double pressure) const;
 
+            double
+            melt(const double temperature,
+                     const double pressure) const;
+
+            double
+            h2o_fugacity(const double temperature,
+                     const double pressure) const;
+
+            unsigned int
+            viscosity_flag(const double temperature,
+                     const double pressure) const;
             /**
              * Computes the derivative of enthalpy for temperature, using the
              * resolution of the read-in table to compute a finite-difference
@@ -210,7 +221,9 @@ namespace aspect
             dealii::Table<2,double> vs_values;
             dealii::Table<2,double> enthalpy_values;
             dealii::Table<2,unsigned int> dominant_phase_indices;
-
+            dealii::Table<2,unsigned int> rheology_phase_flags;
+            dealii::Table<2,double> melt_values;
+            dealii::Table<2,double> h2o_fugacity_values;
             /**
              * The vector of column names corresponding to each phase,
              * and a vector of tables containing the volume fractions of
