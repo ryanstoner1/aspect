@@ -25,6 +25,7 @@
 #include <aspect/simulator_access.h>
 #include <aspect/material_model/equation_of_state/interface.h>
 
+#include <aspect/material_model/rheology/peierls_creep.h>
 
 namespace aspect
 {
@@ -85,6 +86,13 @@ namespace aspect
                MaterialModel::EquationOfStateOutputs<dim> &out,
                std::vector<MaterialModel::EquationOfStateOutputs<dim>> &eos_outputs) const;          
 
+          void
+          get_h2o(std::vector<double> &h2omax,const MaterialModel::MaterialModelInputs<dim> &in,
+            const unsigned int &i,const unsigned int &j,const unsigned int &base,
+            const std::vector<unsigned int> &n_phases_per_composition,
+            const std::vector<double> &phase_function_values,
+            const std::vector<double> &volume_fractions) const;
+
           /**
            * Function to fill the seismic velocity and phase volume additional outputs
            */
@@ -92,6 +100,24 @@ namespace aspect
           fill_additional_outputs(const MaterialModel::MaterialModelInputs<dim> &in,
                                   const std::vector<std::vector<double>> &volume_fractions,
                                   MaterialModel::MaterialModelOutputs<dim> &out) const;
+
+          /**
+           * Function to fill rheological parameters from material lookup tables for dislocation creep
+           */
+          unsigned int
+          fill_lookup_rheology (Rheology::DislocationCreep<dim> &dislocation_creep, 
+                                Rheology::DiffusionCreep<dim> &diffusion_creep,
+                                const Rheology::DislocationCreep<dim> &initial_dislocation_creep,
+                                const int base,
+                                const unsigned int j,
+                                const double temperature_for_viscosity,
+                                const double pressure_for_creep,
+                                const std::vector<double> &volume_fractions,
+                                const std::vector<double> &phase_function_values,
+                                const std::vector<unsigned int> &n_phases_per_composition) const;
+
+
+
 
           /**
            * Declare the parameters this class takes through input files.
@@ -114,12 +140,97 @@ namespace aspect
           get_material_lookup (unsigned int lookup_index) const;
 
 
+          const std::vector<double>
+          get_phases_using_material_files() const;
+
+          /**
+           * List of pointers to objects that read and process data we get from
+           * material data files. There is one pointer/object per lookup file.
+           */
+          std::vector<std::unique_ptr<MaterialModel::MaterialUtilities::Lookup::MaterialLookup>> material_lookup;
         private:
           /**
           * Vector of lookup tables to be used
           */
           std::vector<double> phases_using_material_files;
 
+          /**
+          * Vector of where viscosities used from lookup tables
+          */
+          std::vector<double> phases_using_lookup_viscosities;
+
+          /**
+          * Vector of activation volumes used from lookup tables
+          */
+          std::vector<double> activation_volumes_dislocation_lookup;
+
+          /**
+          * Vector of activation energies used from lookup tables
+          */
+          std::vector<double> activation_energies_dislocation_lookup;
+
+          /**
+          * Vector of prefactors used from lookup tables
+          */
+          std::vector<double> prefactors_dislocation_lookup;
+
+          /**
+          * Vector of stress exponents used from lookup tables
+          */
+          std::vector<double> stress_exponents_dislocation_lookup;
+
+          /**
+          * Vector of flags of whether to use water fugacity
+          */
+          std::vector<double> use_water_fugacity;
+
+          /**
+          * Vector of flags of whether to use exponential melt weakening for small melt fractions
+          */
+          std::vector<double> use_melt_weakening;
+
+          /**
+          * Melt weakening factor for small melt fractions
+          */
+          double exponential_melt_weakening_factor;
+
+          /**
+          * Peierls parameters
+          */
+          std::vector<double> fitting_parameters_Peierls_lookup;
+          std::vector<double> p_Peierls_lookup;
+          std::vector<double> q_Peierls_lookup;
+          std::vector<double> reference_stress_Peierls_lookup;
+          std::vector<double> activation_energies_Peierls_lookup;
+          std::vector<double> prefactors_Peierls_lookup;
+          std::vector<double> stress_exponents_Peierls_lookup;
+          std::vector<double> use_water_fugacity_Peierls;
+          std::vector<double> use_melt_weakening_Peierls;
+
+          /**
+          * Phase names or identifiers for viscosity lookups
+          */
+          std::vector<std::string> viscosity_lookup_phase_names;          
+
+          /**
+          * Phase names or identifiers for viscosity lookups
+          */
+          std::vector<std::string> peierls_viscosity_lookup_phase_names;
+
+          /**
+          * Material model file names with duplicates removed
+          */
+          std::vector<std::string> unique_material_file_names;
+
+          /**
+          * Number of phases used for viscosity lookups
+          */
+          std::unique_ptr<std::vector<unsigned int>> expected_n_phases_per_viscosity_lookup;
+
+          /**
+          * Number of phases used for viscosity lookups
+          */
+          std::unique_ptr<std::vector<unsigned int>> peierls_expected_n_phases_per_viscosity_lookup;
 
           /**
  *            * Vector of reference densities $\rho_0$ with one entry per composition and phase plus one
@@ -171,12 +282,6 @@ namespace aspect
             perplex,
             hefesto
           } material_file_format;
-
-          /**
-           * List of pointers to objects that read and process data we get from
-           * material data files. There is one pointer/object per lookup file.
-           */
-          std::vector<std::unique_ptr<MaterialModel::MaterialUtilities::Lookup::MaterialLookup>> material_lookup;
 
           /**
            * Vector of strings containing the names of the unique phases in all the material lookups.
