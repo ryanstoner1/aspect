@@ -123,6 +123,18 @@ namespace aspect
                                               std::vector<unsigned int>()) const;
 
           /**
+           * This function calculates viscosities assuming that all the compositional fields
+           * experience the same strain rate (isostrain).
+           */
+          IsostrainViscosities
+          calculate_isostrain_viscosities_lookup ( const MaterialModel::MaterialModelInputs<dim> &in,
+                                            const unsigned int i,
+                                            const std::vector<double> &volume_fractions,
+                                            const std::vector<double> &phase_function_values = std::vector<double>(),
+                                            const std::vector<unsigned int> &n_phases_per_composition =
+                                              std::vector<unsigned int>()) const;
+                                              
+          /**
            * A function that fills the viscosity derivatives in the
            * MaterialModelOutputs object that is handed over, if they exist.
            * Does nothing otherwise.
@@ -213,9 +225,6 @@ namespace aspect
            */
           bool use_elasticity;
 
-
-        private:
-
           /**
            * Reference strain rate for the first non-linear iteration
            * in the first time step.
@@ -229,28 +238,6 @@ namespace aspect
            */
           std::vector<double> minimum_viscosity;
           std::vector<double> maximum_viscosity;
-
-          /**
-           * Enumeration for selecting which type of viscous flow law to use.
-           * Select between diffusion, dislocation, frank_kamenetskii or composite.
-           */
-          enum ViscosityScheme
-          {
-            diffusion,
-            dislocation,
-            frank_kamenetskii,
-            composite
-          } viscous_flow_law;
-
-          /**
-           * Enumeration for selecting which type of yield mechanism to use.
-           * Select between Drucker Prager and stress limiter.
-           */
-          enum YieldScheme
-          {
-            stress_limiter,
-            drucker_prager
-          } yield_mechanism;
 
           /**
            * Whether to allow negative pressures to be used in the computation
@@ -313,6 +300,30 @@ namespace aspect
            * Input parameters for the drucker prager plasticity.
            */
           Rheology::DruckerPragerParameters drucker_prager_parameters;
+        // private:
+
+
+          /**
+           * Enumeration for selecting which type of viscous flow law to use.
+           * Select between diffusion, dislocation, frank_kamenetskii or composite.
+           */
+          enum ViscosityScheme
+          {
+            diffusion,
+            dislocation,
+            frank_kamenetskii,
+            composite
+          } viscous_flow_law;
+
+          /**
+           * Enumeration for selecting which type of yield mechanism to use.
+           * Select between Drucker Prager and stress limiter.
+           */
+          enum YieldScheme
+          {
+            stress_limiter,
+            drucker_prager
+          } yield_mechanism;
 
       };
     }
