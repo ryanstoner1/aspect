@@ -114,7 +114,7 @@ namespace aspect
                                               const double temperature,
                                               const DiffusionCreepParameters creep_parameters) const;
 
-        private:
+        // private:
 
           /**
            * List of diffusion creep prefactors A.
