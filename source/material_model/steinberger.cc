@@ -25,13 +25,13 @@
 #include <aspect/utilities.h>
 #include <aspect/lateral_averaging.h>
 
+#include <deal.II/base/signaling_nan.h>
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/base/table.h>
 #include <fstream>
 #include <iostream>
 #include <memory>
-
 
 namespace aspect
 {
@@ -223,6 +223,44 @@ namespace aspect
     //   return plastic_yielding;
     // }
 
+    namespace
+    {
+      std::vector<std::string> make_dislocation_viscosity_outputs_names()
+      {
+        std::vector<std::string> names;
+        names.emplace_back("dislocation_viscosity");
+        names.emplace_back("rheology_flag");
+        return names;
+      }
+    }
+
+    template <int dim>
+    DislocationViscosityOutputs<dim>::DislocationViscosityOutputs (const unsigned int n_points)
+      :
+      NamedAdditionalMaterialOutputs<dim>(make_dislocation_viscosity_outputs_names()),
+      dislocation_viscosities(n_points, numbers::signaling_nan<double>()),
+      rheology_flags(n_points, numbers::signaling_nan<double>())
+    {}
+
+
+
+    template <int dim>
+    std::vector<double>
+    DislocationViscosityOutputs<dim>::get_nth_output(const unsigned int idx) const
+    {
+      AssertIndexRange (idx, 2);
+      switch (idx)
+        {
+          case 0:
+            return dislocation_viscosities;
+          case 1:
+            return rheology_flags;
+          default:
+            AssertThrow(false, ExcInternalError());
+        }
+      // we will never get here, so just return something
+      return dislocation_viscosities;
+    }
 
     template <int dim>
     void
@@ -293,7 +331,290 @@ namespace aspect
       return std::max(std::min(vis_lateral * vis_radial,max_eta),min_eta);
     }
 
+    template <int dim>
+    IsostrainViscositiesLookup
+    Steinberger<dim>::
+    calculate_isostrain_viscosities_lookup (const MaterialModel::MaterialModelInputs<dim> &in,
+                                      const unsigned int i,
+                                      const std::vector<double> &volume_fractions,
+                                      const std::vector<double> &phase_function_values,
+                                      const std::vector<unsigned int> &n_phases_per_composition) const
+    {
+      IsostrainViscositiesLookup output_parameters;
 
+      // Initialize or fill variables used to calculate viscosities
+      output_parameters.composition_yielding.resize(volume_fractions.size(), false);
+      output_parameters.composition_viscosities.resize(volume_fractions.size(), numbers::signaling_nan<double>());
+      output_parameters.current_friction_angles.resize(volume_fractions.size(), numbers::signaling_nan<double>());
+      output_parameters.viscosity_dislocation.resize(volume_fractions.size(), numbers::signaling_nan<double>());
+      output_parameters.rheology_flags.resize(volume_fractions.size(), numbers::signaling_nan<double>());
+
+      // Assemble stress tensor if elastic behavior is enabled
+      SymmetricTensor<2,dim> stress_old = numbers::signaling_nan<SymmetricTensor<2,dim>>();
+      if (this->rheology->use_elasticity == true)
+        {
+          for (unsigned int j=0; j < SymmetricTensor<2,dim>::n_independent_components; ++j)
+            stress_old[SymmetricTensor<2,dim>::unrolled_to_component_indices(j)] = in.composition[i][j];
+        }
+
+      // The first time this function is called (first iteration of first time step)
+      // a specified "reference" strain rate is used as the returned value would
+      // otherwise be zero.
+      const bool use_reference_strainrate = (this->get_timestep_number() == 0) &&
+                                            (in.strain_rate[i].norm() <= std::numeric_limits<double>::min());
+
+      double edot_ii;
+      if (use_reference_strainrate)
+        edot_ii = this->rheology->ref_strain_rate;
+      else
+        // Calculate the square root of the second moment invariant for the deviatoric strain rate tensor.
+        edot_ii = std::max(std::sqrt(std::max(-second_invariant(deviator(in.strain_rate[i])), 0.)),
+                            this->rheology->min_strain_rate);
+
+      // Choice of activation_energy volume depends on whether there is an adiabatic temperature
+      // gradient used when calculating the viscosity. This allows the same activation_energy volume
+      // to be used in incompressible and compressible models.
+      const double temperature_for_viscosity = in.temperature[i] + this->rheology->adiabatic_temperature_gradient_for_viscosity*in.pressure[i];
+      AssertThrow(temperature_for_viscosity != 0, ExcMessage(
+                    "The temperature used in the calculation of the visco-plastic rheology is zero. "
+                    "This is not allowed, because this value is used to divide through. It is probably "
+                    "being caused by the temperature being zero somewhere in the model. The relevant "
+                    "values for debugging are: temperature (" + Utilities::to_string(in.temperature[i]) +
+                    "), adiabatic_temperature_gradient_for_viscosity ("
+                    + Utilities::to_string(this->rheology->adiabatic_temperature_gradient_for_viscosity) + ") and pressure ("
+                    + Utilities::to_string(in.pressure[i]) + ")."));
+
+      // Step 1a: compute viscosity from diffusion creep law, at least if it is going to be used
+
+      // Determine whether to use the adiabatic pressure instead of the full pressure (default)
+      // when calculating creep viscosity.
+      double pressure_for_creep = in.pressure[i];
+
+      if (this->rheology->use_adiabatic_pressure_in_creep)
+        pressure_for_creep = this->get_adiabatic_conditions().pressure(in.position[i]);
+
+      // // Step 1b: check which phases are using lookup table and replace dislocation creep parameters
+      // const MaterialModel::MaterialUtilities::Lookup::MaterialLookup & i_material_lookup = equation_of_state.get_material_lookup(i);
+      //const std::vector<double> phases_using_material_files = equation_of_state.get_phases_using_material_files();
+
+      unsigned int base = 0;
+
+      // Calculate viscosities for each of the individual compositional phases
+      for (unsigned int j=0; j < volume_fractions.size(); ++j)
+        {
+          
+          
+          unsigned int rheology_flag = equation_of_state.fill_lookup_rheology(this->rheology->dislocation_creep,
+                                                this->rheology->diffusion_creep,
+                                                this->initial_rheology->dislocation_creep, 
+                                                base,
+                                                j,
+                                                temperature_for_viscosity,
+                                                pressure_for_creep,
+                                                volume_fractions,
+                                                phase_function_values,
+                                                n_phases_per_composition);
+          
+          output_parameters.rheology_flags[j] = double(rheology_flag);
+          base += n_phases_per_composition[j]+1;
+
+          // Step 1: viscous behavior
+          double viscosity_pre_yield = numbers::signaling_nan<double>();
+          {
+            const double viscosity_diffusion
+              = (this->rheology->viscous_flow_law != Rheology::ViscoPlastic<dim>::dislocation
+                  ?
+                  this->rheology->diffusion_creep.compute_viscosity(pressure_for_creep, temperature_for_viscosity, j,
+                                                    phase_function_values,
+                                                    n_phases_per_composition)
+                  :
+                  numbers::signaling_nan<double>());
+
+            // Step 1c: compute viscosity from dislocation creep law
+            const double viscosity_dislocation
+              = (this->rheology->viscous_flow_law != Rheology::ViscoPlastic<dim>::diffusion
+                  ?
+                  this->rheology->dislocation_creep.compute_viscosity(edot_ii, pressure_for_creep, temperature_for_viscosity, j,
+                                                      phase_function_values,
+                                                      n_phases_per_composition)
+                  :
+                  numbers::signaling_nan<double>());
+
+            // Step 1d: select what form of viscosity to use (diffusion, dislocation, fk, or composite)
+            switch (this->rheology->viscous_flow_law)
+              {
+                case 0://diffusion:
+                {
+                  viscosity_pre_yield = viscosity_diffusion;
+                  break;
+                }
+                case 1://dislocation:
+                {
+                  output_parameters.viscosity_dislocation[j] = viscosity_dislocation;
+                  viscosity_pre_yield = viscosity_dislocation;
+                  break;
+                }
+                case Rheology::ViscoPlastic<dim>::frank_kamenetskii://frank_kamenetskii:
+                {
+                  viscosity_pre_yield = this->rheology->frank_kamenetskii_rheology->compute_viscosity(in.temperature[i], j);
+                  break;
+                }
+                case 3://composite:
+                {
+                  output_parameters.viscosity_dislocation[j] = viscosity_dislocation;
+                  viscosity_pre_yield = (viscosity_diffusion * viscosity_dislocation)/
+                                        (viscosity_diffusion + viscosity_dislocation);
+                  break;
+                }
+                default:
+                {
+                  AssertThrow(false, ExcNotImplemented());
+                  break;
+                }
+              }
+
+            // Step 1e: compute viscosity from Peierls creep law and harmonically average with current viscosities
+            if (this->rheology->use_peierls_creep)
+              {
+                const double viscosity_peierls = this->rheology->peierls_creep->compute_viscosity(edot_ii, pressure_for_creep, temperature_for_viscosity, j,
+                                                                                  phase_function_values,
+                                                                                  n_phases_per_composition);
+                viscosity_pre_yield = (viscosity_pre_yield * viscosity_peierls) / (viscosity_pre_yield + viscosity_peierls);
+              }
+            
+          }
+          
+
+          // Step 1f: multiply the viscosity by a constant (default value is 1)
+          viscosity_pre_yield = this->rheology->constant_viscosity_prefactors.compute_viscosity(viscosity_pre_yield, j);
+
+          // Step 2: calculate strain weakening factors for the cohesion, friction, and pre-yield viscosity
+          // If no strain weakening is applied, the factors are 1.
+          const std::array<double, 3> weakening_factors = this->rheology->strain_rheology.compute_strain_weakening_factors(j, in.composition[i]);
+          // Apply strain weakening to the viscous viscosity.
+          viscosity_pre_yield *= weakening_factors[2];
+
+
+          // Step 3: calculate the viscous stress magnitude
+          // and strain rate. If requested compute visco-elastic contributions.
+          double current_edot_ii = edot_ii;
+
+          if (this->rheology->use_elasticity)
+            {
+              const std::vector<double> &elastic_shear_moduli = this->rheology->elastic_rheology.get_elastic_shear_moduli();
+
+              if (use_reference_strainrate == true)
+                current_edot_ii = this->rheology->ref_strain_rate;
+              else
+                {
+                  Assert(std::isfinite(in.strain_rate[i].norm()),
+                          ExcMessage("Invalid strain_rate in the MaterialModelInputs. This is likely because it was "
+                                    "not filled by the caller."));
+                  const double viscoelastic_strain_rate_invariant = this->rheology->elastic_rheology.calculate_viscoelastic_strain_rate(in.strain_rate[i],
+                                                                    stress_old,
+                                                                    elastic_shear_moduli[j]);
+
+                  current_edot_ii = std::max(viscoelastic_strain_rate_invariant,
+                                              this->rheology->min_strain_rate);
+                }
+
+              // Step 3a: calculate viscoelastic (effective) viscosity
+              viscosity_pre_yield = this->rheology->elastic_rheology.calculate_viscoelastic_viscosity(viscosity_pre_yield,
+                                                                                      elastic_shear_moduli[j]);
+            }
+
+          // Step 3b: calculate current (viscous or viscous + elastic) stress magnitude
+          double current_stress = 2. * viscosity_pre_yield * current_edot_ii;
+
+          // Step 4a: calculate strain-weakened friction and cohesion
+          const Rheology::DruckerPragerParameters drucker_prager_parameters = this->rheology->drucker_prager_plasticity.compute_drucker_prager_parameters(j,
+                                                                    phase_function_values,
+                                                                    n_phases_per_composition);
+          const double current_cohesion = drucker_prager_parameters.cohesion * weakening_factors[0];
+          double current_friction = drucker_prager_parameters.angle_internal_friction * weakening_factors[1];
+
+          // Steb 4b: calculate friction angle dependent on strain rate if specified
+          // apply the strain rate dependence to the friction angle (including strain weakening  if present)
+          // Note: Maybe this should also be turned around to first apply strain rate dependence and then
+          // the strain weakening to the dynamic friction angle. Didn't come up with a clear argument for
+          // one order or the other.
+          current_friction = this->rheology->friction_models.compute_friction_angle(current_edot_ii,
+                                                                    j,
+                                                                    current_friction,
+                                                                    in.position[i]);
+          output_parameters.current_friction_angles[j] = current_friction;
+
+          // Step 5: plastic yielding
+
+          // Determine if the pressure used in Drucker Prager plasticity will be capped at 0 (default).
+          // This may be necessary in models without gravity and when the dynamic stresses are much higher
+          // than the lithostatic pressure.
+
+          double pressure_for_plasticity = in.pressure[i];
+          if (this->rheology->allow_negative_pressures_in_plasticity == false)
+            pressure_for_plasticity = std::max(in.pressure[i],0.0);
+
+          // Step 5a: calculate Drucker-Prager yield stress
+          const double yield_stress = this->rheology->drucker_prager_plasticity.compute_yield_stress(current_cohesion,
+                                                                                      current_friction,
+                                                                                      pressure_for_plasticity,
+                                                                                      drucker_prager_parameters.max_yield_stress);
+
+          // Step 5b: select if yield viscosity is based on Drucker Prager or stress limiter rheology
+          double viscosity_yield = viscosity_pre_yield;
+          switch (this->rheology->yield_mechanism)
+            {
+              case Rheology::ViscoPlastic<dim>::stress_limiter:
+              {
+                //Step 5b-1: always rescale the viscosity back to the yield surface
+                const double viscosity_limiter = yield_stress / (2.0 * this->rheology->ref_strain_rate)
+                                                  * std::pow((edot_ii/this->rheology->ref_strain_rate),
+                                                            1./this->rheology->exponents_stress_limiter[j] - 1.0);
+                viscosity_yield = 1. / ( 1./viscosity_limiter + 1./viscosity_pre_yield);
+                break;
+              }
+              case Rheology::ViscoPlastic<dim>::drucker_prager:
+              {
+                // Step 5b-2: if the current stress is greater than the yield stress,
+                // rescale the viscosity back to yield surface
+                if (current_stress >= yield_stress)
+                  {
+                    viscosity_yield = this->rheology->drucker_prager_plasticity.compute_viscosity(current_cohesion,
+                                                                                  current_friction,
+                                                                                  pressure_for_plasticity,
+                                                                                  current_edot_ii,
+                                                                                  drucker_prager_parameters.max_yield_stress,
+                                                                                  viscosity_pre_yield);
+                    output_parameters.composition_yielding[j] = true;
+                  }
+                break;
+              }
+              default:
+              {
+                AssertThrow(false, ExcNotImplemented());
+                break;
+              }
+            }
+
+          // Step 6: limit the viscosity with specified minimum and maximum bounds
+          const double maximum_viscosity_for_composition = MaterialModel::MaterialUtilities::phase_average_value(
+                                                              phase_function_values,
+                                                              n_phases_per_composition,
+                                                              this->rheology->maximum_viscosity,
+                                                              j,
+                                                              MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic
+                                                            );
+          const double minimum_viscosity_for_composition = MaterialModel::MaterialUtilities::phase_average_value(
+                                                              phase_function_values,
+                                                              n_phases_per_composition,
+                                                              this->rheology->minimum_viscosity,
+                                                              j,
+                                                              MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic
+                                                            );
+          output_parameters.composition_viscosities[j] = std::min(std::max(viscosity_yield, minimum_viscosity_for_composition), maximum_viscosity_for_composition);
+        }
+      return output_parameters;
+    }
 
     template <int dim>
     bool
@@ -375,7 +696,6 @@ namespace aspect
 
       // Evaluate the equation of state properties over all evaluation points
       equation_of_state.evaluate(eos_in, eos_outputs);
-
       for (unsigned int i=0; i < in.n_evaluation_points(); ++i)
         {
           // First compute the equation of state variables and thermodynamic properties
@@ -447,16 +767,22 @@ namespace aspect
                                                                                eos_outputs[i].densities,
                                                                                true);
 
-	  bool plastic_yielding = false;
+	        bool plastic_yielding = false;
           if (in.requests_property(MaterialProperties::viscosity)) {
             // Currently, the viscosities for each of the compositional fields are calculated assuming
             // isostrain amongst all compositions, allowing calculation of the viscosity ratio.
             // TODO: This is only consistent with viscosity averaging if the arithmetic averaging
             // scheme is chosen. It would be useful to have a function to calculate isostress viscosities.
-            const IsostrainViscosities isostrain_viscosities = rheology->calculate_isostrain_viscosities(in, i, volume_fractions[i], phase_function_values, phase_function.n_phase_transitions_for_each_composition());
-            //out.viscosities[i] = viscosity(in.temperature[i], in.pressure[i], in.composition[i], in.strain_rate[i], in.position[i]);
-             out.viscosities[i] = MaterialUtilities::average_value(volume_fractions[i], isostrain_viscosities.composition_viscosities, rheology->viscosity_averaging);
+            const IsostrainViscositiesLookup isostrain_viscosities = calculate_isostrain_viscosities_lookup(in, i, volume_fractions[i], phase_function_values, phase_function.n_phase_transitions_for_each_composition());
+            out.viscosities[i] = MaterialUtilities::average_value(volume_fractions[i], isostrain_viscosities.composition_viscosities, rheology->viscosity_averaging);
 
+            if (DislocationViscosityOutputs<dim> *disl_viscosities_out = out.template get_additional_output<DislocationViscosityOutputs<dim>>())
+              {
+                disl_viscosities_out->dislocation_viscosities[i] = std::min(
+                    MaterialUtilities::average_value(volume_fractions[i], isostrain_viscosities.viscosity_dislocation, rheology->viscosity_averaging),
+                    1e300);
+                disl_viscosities_out->rheology_flags[i] = 0.0;//MaterialUtilities::average_value(volume_fractions[i], isostrain_viscosities.rheology_flags, MaterialModel::MaterialUtilities::maximum_composition);
+              }
              // Decide based on the maximum composition if material is yielding.
              // This avoids for example division by zero for harmonic averaging (as plastic_yielding
              // holds values that are either 0 or 1), but might not be consistent with the viscosity
@@ -464,17 +790,112 @@ namespace aspect
               std::vector<double>::const_iterator max_composition = std::max_element(const_volume_fractions.begin(),const_volume_fractions.end());
               plastic_yielding = isostrain_viscosities.composition_yielding[std::distance(const_volume_fractions.begin(),max_composition)];                                                                       
           }
-	  rheology->strain_rheology.fill_reaction_outputs(in, i, rheology->min_strain_rate, plastic_yielding, out);
+	        rheology->strain_rheology.fill_reaction_outputs(in, i, rheology->min_strain_rate, plastic_yielding, out);
 
           // Fill plastic outputs if they exist.
           rheology->fill_plastic_outputs(i,volume_fractions[i],plastic_yielding,in,out, phase_function_values, phase_function.n_phase_transitions_for_each_composition());
           MaterialUtilities::fill_averaged_equation_of_state_outputs(eos_outputs[i], mass_fractions, volume_fractions[i], i, out);
           fill_prescribed_outputs(i, volume_fractions[i], in, out);
+        
         }
+
+        // if (this->get_timestep_number() > 0) {
+        //     // We need the velocity gradient for the finite strain (they are not included in material model inputs),
+        //     // so we get them from the finite element.
+        //     const Quadrature<dim> quadrature(this->get_fe().base_element(this->introspection().base_elements.compositional_fields).get_unit_support_points());
+            
+        //     if (in.current_cell.state() == IteratorState::valid && this->get_timestep_number() > 0)
+        //       {
+        //         const QGauss<dim> quadrature_formula (this->introspection().polynomial_degree.velocities+1);
+        //         FEValues<dim> fe_values (this->get_mapping(),
+        //                                 this->get_fe(),
+        //                                 quadrature_formula,
+        //                                 update_gradients);
+        //         std::vector<Tensor<1,dim>> composition_gradients (quadrature.size());
+        //         std::vector<Tensor<2,dim>> velocity_gradients (quadrature_formula.size(), Tensor<2,dim>());
+
+        //         fe_values.reinit (in.current_cell);
+        //         fe_values[this->introspection().extractors.velocities].get_function_gradients (this->get_solution(),
+        //                                                                                         velocity_gradients);
+        //         fe_values[this->introspection().extractors.compositional_fields[0]].get_function_gradients (this->get_solution(),
+        //                   composition_gradients);
+        //       }
+        //       unsigned int j = 0;  
+        //     for (unsigned int i=0; i < in.n_evaluation_points(); ++i)
+        //       {          
+        //       equation_of_state.get_h2o(in,i);
+        //       }
+        //   }  
 
       rheology->strain_rheology.compute_finite_strain_reaction_terms(in, out);
 
       equation_of_state.fill_additional_outputs(in, volume_fractions, out);
+
+      // if (in.current_cell.state() == IteratorState::valid && this->get_timestep_number() > 1)
+      //   {
+      //     // const QGauss<dim> quadrature_formula (this->introspection().polynomial_degree.velocities+1);
+      //     // FEValues<dim> fe_values (this->get_mapping(),
+      //     //                          this->get_fe(),
+      //     //                          quadrature_formula,
+      //     //                          update_gradients);
+
+      //     // std::vector<Tensor<2,dim>> velocity_gradients (quadrature_formula.size(), Tensor<2,dim>());
+
+      //     // fe_values.reinit (in.current_cell);
+      //     // fe_values[this->introspection().extractors.velocities].get_function_gradients (this->get_solution(),
+      //     //                                                                                velocity_gradients);
+
+      //     // Assign the strain components to the compositional fields reaction terms.
+      //     // If there are too many fields, we simply fill only the first fields with the
+      //     // existing strain rate tensor components.
+      //     const std::vector<unsigned int> n_phases_per_composition = phase_function.n_phase_transitions_for_each_composition();
+      //     for (unsigned int q=0; q < in.n_evaluation_points(); ++q)
+      //     {
+      //       const unsigned int n_h2o= out.reaction_terms[q].size() + 1;
+
+            
+            
+      //       unsigned int base = 0;
+      //       for (unsigned int j = 0; j < n_phases_per_composition.size() ; ++j)
+      //       {   
+      //         std::vector<double> h2omax(n_phases_per_composition.size(),0.0); // out.reaction_terms[q].size()
+      //         equation_of_state.get_h2o(h2omax,in,q,j,base,n_phases_per_composition,phase_function_values,volume_fractions[q]);
+      //         base += n_phases_per_composition[j]+1;
+      //         if (j>0) {
+      //           if (in.composition[q][n_phases_per_composition.size()-2]>h2omax[j]) {
+      //             out.reaction_terms[q][n_phases_per_composition.size()-2] =  h2omax[j]/100;
+      //           }      
+      //         }
+      //       //   if (j>0) {
+      //       //     equation_of_state.get_h2o(h2omax,in,q,j,base,n_phases_per_composition,phase_function_values);
+      //       //     base += n_phases_per_composition[j]+1;
+      //       //     if (in.composition[j]>h2omax[j]) {
+      //       //       out.reaction_terms[q][j] = -h2omax[j];
+      //       //     }                
+      //       //   }             
+      //       }
+      //     }
+      //   } else if (in.current_cell.state() == IteratorState::valid && this->get_timestep_number() == 1) {
+      //     const std::vector<unsigned int> n_phases_per_composition = phase_function.n_phase_transitions_for_each_composition();
+      //     for (unsigned int q=0; q < in.n_evaluation_points(); ++q)
+      //     {
+      //       unsigned int base = 0;
+      //       const unsigned int n_phases = this->n_compositional_fields()+1+phase_function.n_phase_transitions();
+      //       std::vector<double> h2omax(n_phases_per_composition.size(),0.0);
+      //       for (unsigned int j = 0; j < n_phases_per_composition.size() ; ++j) 
+      //       {   
+      //         equation_of_state.get_h2o(h2omax,in,q,j,base,n_phases_per_composition,phase_function_values,volume_fractions[q]);
+
+      //         base += n_phases_per_composition[j]+1;
+      //         const double x_location = in.position[q][0];
+      //         const double y_location = in.position[q][1];
+      //         if (j>0) {
+      //           out.reaction_terms[q][n_phases_per_composition.size()-2] += h2omax[j];
+      //         }
+      //       } 
+      //     }        
+      //   }
+
     }
 
 
@@ -722,7 +1143,11 @@ namespace aspect
           rheology = std::make_unique<Rheology::ViscoPlastic<dim>>();
           rheology->initialize_simulator (this->get_simulator());
           rheology->parse_parameters(prm, std::make_unique<std::vector<unsigned int>>(n_phase_transitions_for_each_composition));
-   
+
+          initial_rheology = std::make_unique<Rheology::ViscoPlastic<dim>>();
+          initial_rheology->initialize_simulator (this->get_simulator());
+          initial_rheology->parse_parameters(prm, std::make_unique<std::vector<unsigned int>>(n_phase_transitions_for_each_composition));
+
 	// Check if compositional fields represent a composition
           const std::vector<typename Parameters<dim>::CompositionalFieldDescription> composition_descriptions = this->introspection().get_composition_descriptions();
 
@@ -776,6 +1201,14 @@ namespace aspect
     {
       equation_of_state.create_additional_named_outputs(out);
 
+      // These properties are useful as output.
+      if (out.template get_additional_output<DislocationViscosityOutputs<dim>>() == nullptr)
+        {
+          const unsigned int n_points = out.n_evaluation_points();
+          out.additional_outputs.push_back(
+            std::make_unique<MaterialModel::DislocationViscosityOutputs<dim>> (n_points));
+        }
+
       if (this->introspection().composition_type_exists(Parameters<dim>::CompositionalFieldDescription::density)
           && out.template get_additional_output<PrescribedFieldOutputs<dim>>() == nullptr)
         {
@@ -807,5 +1240,11 @@ namespace aspect
                                    "The default example data builds upon the thermodynamic "
                                    "database by Stixrude 2011 and assumes a pyrolitic composition by "
                                    "Ringwood 1988 but is easily replaceable by other data files. ")
+#define INSTANTIATE(dim) \
+  template class DislocationViscosityOutputs<dim>;
+
+    ASPECT_INSTANTIATE(INSTANTIATE)
+
+#undef INSTANTIATE
   }
 }

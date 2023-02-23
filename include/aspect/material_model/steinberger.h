@@ -115,6 +115,58 @@ namespace aspect
     }
 
     /**
+     * A data structure with the output of calculate_isostrain_viscosities.
+     */
+    struct IsostrainViscositiesLookup
+    {
+      /**
+       * The composition viscosity.
+       */
+      std::vector<double> composition_viscosities;
+
+      /**
+       * The composition yielding.
+       */
+      std::vector<bool> composition_yielding;
+
+      /**
+       * The current friction angle.
+       */
+      std::vector<double> current_friction_angles;
+
+      /**
+       * The current dislocation viscosity.
+       */
+      std::vector<double> viscosity_dislocation;
+
+      /**
+       * The current rheology lookup flag.
+       */
+      std::vector<double> rheology_flags;
+    };
+
+    /**
+     * Additional output fields for the dislocation viscosity parameters
+     * to be added to the MaterialModel::MaterialModelOutputs structure
+     * and filled in the MaterialModel::GrainSize::evaluate() function.
+     */
+    template <int dim>
+    class DislocationViscosityOutputs : public NamedAdditionalMaterialOutputs<dim>
+    {
+      public:
+        DislocationViscosityOutputs(const unsigned int n_points);
+
+        std::vector<double> get_nth_output(const unsigned int idx) const override;
+
+        /**
+         * Dislocation viscosities at the evaluation points passed to
+         * the instance of MaterialModel::Interface::evaluate() that fills
+         * the current object.
+         */
+        std::vector<double> dislocation_viscosities;
+        std::vector<double> rheology_flags;
+    };
+    /**
      * A variable viscosity material model that reads the essential values of
      * coefficients from tables in input files.
      *
@@ -155,6 +207,17 @@ namespace aspect
         /**
          * @}
          */
+        /**
+        * This function calculates viscosities assuming that all the compositional fields
+        * experience the same strain rate (isostrain).
+        */
+        IsostrainViscositiesLookup
+        calculate_isostrain_viscosities_lookup ( const MaterialModel::MaterialModelInputs<dim> &in,
+                                          const unsigned int i,
+                                          const std::vector<double> &volume_fractions,
+                                          const std::vector<double> &phase_function_values = std::vector<double>(),
+                                          const std::vector<unsigned int> &n_phases_per_composition =
+                                            std::vector<unsigned int>()) const;
 
         /**
          * @name Qualitative properties one can ask a material model
@@ -239,6 +302,8 @@ namespace aspect
  *                                                                                  * functions and parameters for all subordinate rheologies.
  *                                                                                           */
         std::unique_ptr<Rheology::ViscoPlastic<dim>> rheology;
+        std::unique_ptr<Rheology::ViscoPlastic<dim>> initial_rheology;
+
 
         std::vector<double> thermal_diffusivities;
 
