@@ -115,8 +115,6 @@ namespace aspect
                                               const double temperature,
                                               const DislocationCreepParameters creep_parameters) const;
 
-        private:
-
           /**
            * List of dislocation creep prefactors A.
            */
@@ -136,6 +134,8 @@ namespace aspect
            * List of dislocation creep activation volumes V.
            */
           std::vector<double> activation_volumes_dislocation;
+
+        //private:
 
       };
     }
