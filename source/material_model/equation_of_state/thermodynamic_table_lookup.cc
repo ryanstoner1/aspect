@@ -324,7 +324,7 @@ namespace aspect
         const std::vector<double> &phase_function_values,
         const std::vector<double> &volume_fractions) const
       {
-        if (volume_fractions[j]>0.0) {  
+        if (volume_fractions[j]>1e-9) {  
           for (unsigned int k=0; k<(n_phases_per_composition[j]+1); k++) { // left
             const unsigned int c = base-j+k; // phase transition index
             bool is_phase;
@@ -351,14 +351,7 @@ namespace aspect
           }
 
           
-          // }
 
-          // for (unsigned int j=0; j<material_lookup.size(); ++j)
-          //   {
-          //     if (phases_using_material_files[j]==1) {
-          //       h2omax[j] = material_lookup[j]->h2o_max(temperature, pressure);
-          //     }
-          //   }
         }
       }
 
@@ -426,7 +419,9 @@ namespace aspect
             out.entropy_derivative_temperature[c] = 0.0;
             if (phases_using_material_files[c]==1) {
               out.densities[c] = eos_outputs[input_index].densities[int(phases_using_material_files[c])];
+              //out.compressibilities[c] = material_lookup[j]->dRhodp(temperature, pressure)/out.densities[c];
             }
+            
           }
       }
 
