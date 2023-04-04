@@ -24,6 +24,9 @@
 #include <aspect/adiabatic_conditions/interface.h>
 #include <aspect/utilities.h>
 #include <aspect/lateral_averaging.h>
+#include <aspect/simulator.h>
+#include <aspect/simulator/assemblers/stokes.h>
+#include <aspect/melt.h>
 
 #include <deal.II/base/signaling_nan.h>
 #include <deal.II/base/quadrature_lib.h>
@@ -799,102 +802,136 @@ namespace aspect
         
         }
 
-        // if (this->get_timestep_number() > 0) {
-        //     // We need the velocity gradient for the finite strain (they are not included in material model inputs),
-        //     // so we get them from the finite element.
-        //     const Quadrature<dim> quadrature(this->get_fe().base_element(this->introspection().base_elements.compositional_fields).get_unit_support_points());
-            
-        //     if (in.current_cell.state() == IteratorState::valid && this->get_timestep_number() > 0)
-        //       {
-        //         const QGauss<dim> quadrature_formula (this->introspection().polynomial_degree.velocities+1);
-        //         FEValues<dim> fe_values (this->get_mapping(),
-        //                                 this->get_fe(),
-        //                                 quadrature_formula,
-        //                                 update_gradients);
-        //         std::vector<Tensor<1,dim>> composition_gradients (quadrature.size());
-        //         std::vector<Tensor<2,dim>> velocity_gradients (quadrature_formula.size(), Tensor<2,dim>());
-
-        //         fe_values.reinit (in.current_cell);
-        //         fe_values[this->introspection().extractors.velocities].get_function_gradients (this->get_solution(),
-        //                                                                                         velocity_gradients);
-        //         fe_values[this->introspection().extractors.compositional_fields[0]].get_function_gradients (this->get_solution(),
-        //                   composition_gradients);
-        //       }
-        //       unsigned int j = 0;  
-        //     for (unsigned int i=0; i < in.n_evaluation_points(); ++i)
-        //       {          
-        //       equation_of_state.get_h2o(in,i);
-        //       }
-        //   }  
-
       rheology->strain_rheology.compute_finite_strain_reaction_terms(in, out);
 
       equation_of_state.fill_additional_outputs(in, volume_fractions, out);
 
-      // if (in.current_cell.state() == IteratorState::valid && this->get_timestep_number() > 1)
-      //   {
-      //     // const QGauss<dim> quadrature_formula (this->introspection().polynomial_degree.velocities+1);
-      //     // FEValues<dim> fe_values (this->get_mapping(),
-      //     //                          this->get_fe(),
-      //     //                          quadrature_formula,
-      //     //                          update_gradients);
 
-      //     // std::vector<Tensor<2,dim>> velocity_gradients (quadrature_formula.size(), Tensor<2,dim>());
+      // fill melt outputs if they exist
+      aspect::MaterialModel::MeltOutputs<dim> *melt_out = out.template get_additional_output<aspect::MaterialModel::MeltOutputs<dim>>();
 
-      //     // fe_values.reinit (in.current_cell);
-      //     // fe_values[this->introspection().extractors.velocities].get_function_gradients (this->get_solution(),
-      //     //                                                                                velocity_gradients);
+      if (melt_out != nullptr)
+        {
+          const unsigned int porosity_idx = this->introspection().compositional_index_for_name("porosity");
+          for (unsigned int i=0; i<in.n_evaluation_points(); ++i)
+            {
+              const double porosity = in.composition[i][porosity_idx];
 
-      //     // Assign the strain components to the compositional fields reaction terms.
-      //     // If there are too many fields, we simply fill only the first fields with the
-      //     // existing strain rate tensor components.
-      //     const std::vector<unsigned int> n_phases_per_composition = phase_function.n_phase_transitions_for_each_composition();
-      //     for (unsigned int q=0; q < in.n_evaluation_points(); ++q)
-      //     {
-      //       const unsigned int n_h2o= out.reaction_terms[q].size() + 1;
+              melt_out->compaction_viscosities[i] = 5e20 * 0.05/std::max(porosity,0.00025);
+              melt_out->fluid_viscosities[i]= 10.0;
+              melt_out->permeabilities[i]= 1e-8 * std::pow(porosity,3) * std::pow(1.0-porosity,2);
+              melt_out->fluid_densities[i]= 2500.0;
+              melt_out->fluid_density_gradients[i] = Tensor<1,dim>();
+            }
+        }
 
+      if ((in.current_cell.state() == IteratorState::valid) && (this->get_timestep_number() > 1) && (in.n_evaluation_points()>1))
+      {
+        // Assign the strain components to the compositional fields reaction terms.
+        // If there are too many fields, we simply fill only the first fields with the
+        // existing strain rate tensor components.
+        const std::vector<unsigned int> n_phases_per_composition = phase_function.n_phase_transitions_for_each_composition();
+        for (unsigned int q=0; q < in.n_evaluation_points(); ++q)
+        {
             
-            
-      //       unsigned int base = 0;
-      //       for (unsigned int j = 0; j < n_phases_per_composition.size() ; ++j)
-      //       {   
-      //         std::vector<double> h2omax(n_phases_per_composition.size(),0.0); // out.reaction_terms[q].size()
-      //         equation_of_state.get_h2o(h2omax,in,q,j,base,n_phases_per_composition,phase_function_values,volume_fractions[q]);
-      //         base += n_phases_per_composition[j]+1;
-      //         if (j>0) {
-      //           if (in.composition[q][n_phases_per_composition.size()-2]>h2omax[j]) {
-      //             out.reaction_terms[q][n_phases_per_composition.size()-2] =  h2omax[j]/100;
-      //           }      
-      //         }
-      //       //   if (j>0) {
-      //       //     equation_of_state.get_h2o(h2omax,in,q,j,base,n_phases_per_composition,phase_function_values);
-      //       //     base += n_phases_per_composition[j]+1;
-      //       //     if (in.composition[j]>h2omax[j]) {
-      //       //       out.reaction_terms[q][j] = -h2omax[j];
-      //       //     }                
-      //       //   }             
-      //       }
-      //     }
-      //   } else if (in.current_cell.state() == IteratorState::valid && this->get_timestep_number() == 1) {
-      //     const std::vector<unsigned int> n_phases_per_composition = phase_function.n_phase_transitions_for_each_composition();
-      //     for (unsigned int q=0; q < in.n_evaluation_points(); ++q)
-      //     {
-      //       unsigned int base = 0;
-      //       const unsigned int n_phases = this->n_compositional_fields()+1+phase_function.n_phase_transitions();
-      //       std::vector<double> h2omax(n_phases_per_composition.size(),0.0);
-      //       for (unsigned int j = 0; j < n_phases_per_composition.size() ; ++j) 
-      //       {   
-      //         equation_of_state.get_h2o(h2omax,in,q,j,base,n_phases_per_composition,phase_function_values,volume_fractions[q]);
+          unsigned int base = 0;
+          for (unsigned int j = 0; j < volume_fractions[q].size() ; ++j)
+          {   
+            std::vector<double> h2omax(n_phases_per_composition.size(),0.0); // out.reaction_terms[q].size()
+            equation_of_state.get_h2o(h2omax,in,q,j,base,n_phases_per_composition,phase_function_values,volume_fractions[q]);
+            base += n_phases_per_composition[j]+1;
+            if ((j>0) && (j!=(n_phases_per_composition.size()-4))) {
+              if (in.composition[q][n_phases_per_composition.size()-4]>(h2omax[j]/100) && ((h2omax[j]/100)>0)) {
+                
+                out.reaction_terms[q][n_phases_per_composition.size()-3] =  in.composition[q][n_phases_per_composition.size()-4]-h2omax[j]/100;                  
+                out.reaction_terms[q][n_phases_per_composition.size()-4] -=  in.composition[q][n_phases_per_composition.size()-4]-h2omax[j]/100; 
+             
+              }
 
-      //         base += n_phases_per_composition[j]+1;
-      //         const double x_location = in.position[q][0];
-      //         const double y_location = in.position[q][1];
-      //         if (j>0) {
-      //           out.reaction_terms[q][n_phases_per_composition.size()-2] += h2omax[j];
-      //         }
-      //       } 
-      //     }        
-      //   }
+              double sum_of_elems = 0.0;
+              for (auto& n : in.composition[q])
+                sum_of_elems += n;  
+              if ((sum_of_elems<0.9999) && (in.composition[q][n_phases_per_composition.size()-3]>1e-6) &&
+                 (j==(n_phases_per_composition.size()-3))) {
+                if ((1.0 - sum_of_elems) >=  12*in.composition[q][n_phases_per_composition.size()-3]) {
+                  out.reaction_terms[q][n_phases_per_composition.size()-3] -= in.composition[q][n_phases_per_composition.size()-3];
+                  out.reaction_terms[q][n_phases_per_composition.size()-6] = 12*in.composition[q][n_phases_per_composition.size()-3];
+                } else {
+                  out.reaction_terms[q][n_phases_per_composition.size()-3] -= (1.0 - sum_of_elems)/12;
+                  out.reaction_terms[q][n_phases_per_composition.size()-6] = 1.0 - sum_of_elems;                  
+                }
+              } 
+            }
+
+            //     if (this->get_timestep_number() > 1) {
+              // if ((j>0) && (j==(n_phases_per_composition.size()-3)) ) { // && (in.composition[q][j]>1e-8)
+                
+                
+              //   // const Quadrature<dim> quadrature(in.position); // this->get_fe().base_element(this->introspection().base_elements.compositional_fields).get_unit_support_points()
+              //   // FEValues<dim> fe_values (this->get_mapping(),
+              //   //                           this->get_fe(),
+              //   //                           quadrature,
+              //   //                           update_quadrature_points | update_gradients);
+                
+              //   const QGauss<dim> quadrature_formula (this->introspection().polynomial_degree.compositional_fields+1); // this->introspection().polynomial_degree.compositional_fields+1
+              //   FEValues<dim> fe_values (this->get_mapping(),
+              //                           this->get_fe(),
+              //                           quadrature_formula,
+              //                           update_gradients);
+              //   std::vector<Tensor<1,dim>> composition_gradients (quadrature_formula.size());
+              //   fe_values.reinit(in.current_cell);
+              //   fe_values[this->introspection().extractors.compositional_fields[n_phases_per_composition.size()-3]].get_function_gradients (this->get_solution(),
+              //       composition_gradients);
+              //   unsigned int qq = this->get_fe().system_to_component_index(0).first;
+              //   const Tensor<1,dim> advection_values = composition_gradients[q]; //   *   // n_phases_per_composition.size()-3
+              //   const double advection_unrolled = advection_values[Tensor<1,dim>::unrolled_to_component_indices(1)];
+
+              //   // for (unsigned int j=0; j<this->get_fe().base_element(this->introspection().base_elements.compositional_fields).dofs_per_cell; ++j)
+              //   //     this_indicator[idx] += composition_gradients[j].norm();
+                
+              //   // const Quadrature<dim> quadrature2(this->get_fe().base_element(this->introspection().base_elements.compositional_fields).get_unit_support_points()); // this->get_fe().base_element(this->introspection().base_elements.compositional_fields).get_unit_support_points();
+              //   // FEValues<dim> fe_values2 (this->get_mapping(),
+              //   //                           this->get_fe(),
+              //   //                           quadrature2,
+              //   //                           update_quadrature_points | update_gradients);
+              //   // std::vector<Tensor<1,dim>> composition_gradients2 (quadrature2.size());
+              //   // fe_values2.reinit(in.current_cell);
+              //   // fe_values2[this->introspection().extractors.compositional_fields[n_phases_per_composition.size()-3]].get_function_gradients (this->get_solution(),
+              //   //     composition_gradients2);
+              //   // const Tensor<1,dim> advection_values2 = composition_gradients2[q]; //   *   // n_phases_per_composition.size()-3
+                
+              //   //const double advection_unrolled2 = advection_values2[Tensor<1,dim>::unrolled_to_component_indices(1)];
+              //   // if (!isnan(advection_unrolled)) {
+              //   //   out.reaction_terms[q][n_phases_per_composition.size()-3] = (-6.168e-10)*this->get_timestep()*advection_unrolled; //*1.0e-15*0.01;
+              //   // }
+                
+              // }         
+          }
+        }
+
+
+      } else if ((in.current_cell.state() == IteratorState::valid) && (this->get_timestep_number() == 1)) {
+        const std::vector<unsigned int> n_phases_per_composition = phase_function.n_phase_transitions_for_each_composition();
+        for (unsigned int q=0; q < in.n_evaluation_points(); ++q)
+        {
+          unsigned int base = 0;
+          const unsigned int n_phases = this->n_compositional_fields()+1+phase_function.n_phase_transitions();
+          std::vector<double> h2omax(n_phases_per_composition.size(),0.0);
+          for (unsigned int j = 0; j < volume_fractions[q].size() ; ++j) 
+          {   
+            equation_of_state.get_h2o(h2omax,in,q,j,base,n_phases_per_composition,phase_function_values,volume_fractions[q]);
+
+            base += n_phases_per_composition[j]+1;
+            const double x_location = in.position[q][0];
+            const double y_location = in.position[q][1];
+            if ((j>0) ) { // && (j!=(n_phases_per_composition.size()-3))
+              out.reaction_terms[q][n_phases_per_composition.size()-4] += h2omax[j]/100;
+              //out.reaction_terms[q][j] -= h2omax[j]/100;
+            }
+          } 
+        }        
+      }
+
 
     }
 
@@ -1148,7 +1185,7 @@ namespace aspect
           initial_rheology->initialize_simulator (this->get_simulator());
           initial_rheology->parse_parameters(prm, std::make_unique<std::vector<unsigned int>>(n_phase_transitions_for_each_composition));
 
-	// Check if compositional fields represent a composition
+	        // Check if compositional fields represent a composition
           const std::vector<typename Parameters<dim>::CompositionalFieldDescription> composition_descriptions = this->introspection().get_composition_descriptions();
 
           // All chemical compositional fields are assumed to represent mass fractions.
