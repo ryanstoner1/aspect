@@ -509,7 +509,7 @@ namespace aspect
       namespace
       {
         bool
-        all_entries_NaN(const std::vector<double> &values)
+        all_entries_NaN (const std::vector<double> &values)
         {
           for (const double value : values)
             if (std::isnan(value) == false)
