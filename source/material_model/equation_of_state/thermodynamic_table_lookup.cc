@@ -318,13 +318,15 @@ namespace aspect
       template <int dim>
       void
       ThermodynamicTableLookup<dim>::
-      get_h2o(std::vector<double> &h2omax, const MaterialModel::MaterialModelInputs<dim> &in,
+      get_h2o(std::vector<double> &h2omax, std::vector<bool> &islookup,
+        const double &temperature,
+        const double &pressure,
         const unsigned int &i,const unsigned int &j,const unsigned int &base,
         const std::vector<unsigned int> &n_phases_per_composition,
         const std::vector<double> &phase_function_values,
         const std::vector<double> &volume_fractions) const
       {
-        if (volume_fractions[j]>1e-9) {  
+        if (volume_fractions[j]>1e-1) {  
           for (unsigned int k=0; k<(n_phases_per_composition[j]+1); k++) { // left
             const unsigned int c = base-j+k; // phase transition index
             bool is_phase;
@@ -339,20 +341,57 @@ namespace aspect
 
             double h2o = 0;
             if  (is_phase) {
-              h2o = material_lookup[j]->h2o_max(in.temperature[i], in.pressure[i]); //rheology_flag = material_lookup[j]->viscosity_flag(temperature_for_viscosity,pressure_for_creep); 
+              h2o = material_lookup[j]->h2o_max(temperature, pressure)/100; //rheology_flag = material_lookup[j]->viscosity_flag(temperature_for_viscosity,pressure_for_creep); 
+              islookup[j] = true;
             }
             if (k!=n_phases_per_composition[j])
             {
-              h2omax[j] += h2o*(1-phase_function_values[c]);
+              h2omax[j] += h2o*(1-phase_function_values[c]);              
             } else {
               h2omax[j] += h2o*phase_function_values[c-1];
             }
             
           }
 
-          
-
         }
+      }
+
+      template <int dim>
+      void
+      ThermodynamicTableLookup<dim>::
+      get_h2o_serp(std::vector<double> &h2omax, 
+        const double &temperature,
+        const double &pressure,
+        const unsigned int &i,const unsigned int &j,const unsigned int &base,
+        const std::vector<unsigned int> &n_phases_per_composition,
+        const std::vector<double> &phase_function_values) const
+      {
+
+        for (unsigned int k=0; k<(n_phases_per_composition[j]+1); k++) { // left
+          const unsigned int c = base-j+k; // phase transition index
+          bool is_phase;
+          if (k!=n_phases_per_composition[j])
+          {
+            is_phase = ((phases_using_lookup_viscosities[base+k]==2) &&
+                  (phase_function_values[c]<1));
+          } else {
+            is_phase = ((phases_using_lookup_viscosities[base+k]==2) &&
+                  (phase_function_values[c-1]>0));
+          }
+
+          double h2o = 0;
+          if  (is_phase) {
+            h2o = material_lookup[j+1]->h2o_max(temperature, pressure)/100; //rheology_flag = material_lookup[j]->viscosity_flag(temperature_for_viscosity,pressure_for_creep); 
+          }
+          if (k!=n_phases_per_composition[j])
+          {
+            h2omax[j] += h2o*(1-phase_function_values[c]);              
+          } else {
+            h2omax[j] += h2o*phase_function_values[c-1];
+          }
+          
+        }
+
       }
 
       template <int dim>
@@ -519,7 +558,7 @@ namespace aspect
 
             if  (is_phase) {
               rheology_flag = material_lookup[j]->viscosity_flag(temperature_for_viscosity,pressure_for_creep); 
-              if ((rheology_flag<4) && (temperature_for_viscosity>573.0)) {
+              if ((rheology_flag<4) && (temperature_for_viscosity>323.0)) {
                 dislocation_creep.activation_energies_dislocation[base+k] = activation_energies_dislocation_lookup[rheology_flag];
                 dislocation_creep.prefactors_dislocation[base+k] = prefactors_dislocation_lookup[rheology_flag];
                 dislocation_creep.stress_exponents_dislocation[base+k] = stress_exponents_dislocation_lookup[rheology_flag];
@@ -544,7 +583,7 @@ namespace aspect
               }
             } else if (is_phase_pseudo_peierls) {
               rheology_flag = material_lookup[j]->viscosity_flag(temperature_for_viscosity,pressure_for_creep); 
-              if ((rheology_flag<1) && (temperature_for_viscosity>573.0)) {
+              if ((temperature_for_viscosity>323.0) && (rheology_flag<1)) { 
                 const double Ea = activation_energies_Peierls_lookup[rheology_flag]* (std::pow((1 - 
                   std::pow(fitting_parameters_Peierls_lookup[rheology_flag], p_Peierls_lookup[rheology_flag])), 
                   q_Peierls_lookup[rheology_flag]));
@@ -828,13 +867,13 @@ namespace aspect
                                                                expected_n_phases_per_viscosity_lookup);  
 
         fitting_parameters_Peierls_lookup = Utilities::parse_map_to_double_array (prm.get("Fitting parameters for Peierls creep lookups"),
-                                                                peierls_viscosity_lookup_phase_names,
-                                                                false,
+                                                               peierls_viscosity_lookup_phase_names,
+                                                               false,
                                                                "Fitting parameters for Peierls creep lookups",
-                                                                true,
-                                                                peierls_expected_n_phases_per_viscosity_lookup);   
+                                                               true,
+                                                               peierls_expected_n_phases_per_viscosity_lookup);   
 
-         p_Peierls_lookup = Utilities::parse_map_to_double_array (prm.get("p for Peierls creep lookups"),
+        p_Peierls_lookup = Utilities::parse_map_to_double_array (prm.get("p for Peierls creep lookups"),
                                                                peierls_viscosity_lookup_phase_names,
                                                                false,
                                                                "p for Peierls creep lookups",
@@ -842,7 +881,7 @@ namespace aspect
                                                                peierls_expected_n_phases_per_viscosity_lookup); 
 
         q_Peierls_lookup = Utilities::parse_map_to_double_array (prm.get("q for Peierls creep lookups"),
-                                                              peierls_viscosity_lookup_phase_names,
+                                                               peierls_viscosity_lookup_phase_names,
                                                                false,
                                                                "q for Peierls creep lookups",
                                                                true,
@@ -871,24 +910,24 @@ namespace aspect
                                                                peierls_expected_n_phases_per_viscosity_lookup);  
 
         stress_exponents_Peierls_lookup = Utilities::parse_map_to_double_array (prm.get("Stress exponents for Peierls creep lookups"),
-                                                              peierls_viscosity_lookup_phase_names,
+                                                               peierls_viscosity_lookup_phase_names,
                                                                false,
                                                                "Stress exponents for Peierls creep lookups",
                                                                true,
                                                                peierls_expected_n_phases_per_viscosity_lookup);     
 
         use_water_fugacity_Peierls = Utilities::parse_map_to_double_array (prm.get("Use water fugacity for Peierls creep lookups"),
-                                                              peierls_viscosity_lookup_phase_names,
-                                                              false,
-                                                              "Use water fugacity for Peierls creep lookups",
-                                                              true,
-                                                              peierls_expected_n_phases_per_viscosity_lookup);  
+                                                               peierls_viscosity_lookup_phase_names,
+                                                               false,
+                                                               "Use water fugacity for Peierls creep lookups",
+                                                               true,
+                                                               peierls_expected_n_phases_per_viscosity_lookup);  
                                         
         use_melt_weakening_Peierls = Utilities::parse_map_to_double_array (prm.get("Use melt weakening for Peierls creep lookups"),
-                                                              peierls_viscosity_lookup_phase_names,
-                                                              false,
-                                                              "Use melt weakening for Peierls creep lookups",
-                                                              true,
+                                                               peierls_viscosity_lookup_phase_names,
+                                                               false,
+                                                               "Use melt weakening for Peierls creep lookups",
+                                                               true,
                                                                peierls_expected_n_phases_per_viscosity_lookup);
 
 

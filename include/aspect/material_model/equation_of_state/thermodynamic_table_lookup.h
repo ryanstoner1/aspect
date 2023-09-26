@@ -87,11 +87,21 @@ namespace aspect
                std::vector<MaterialModel::EquationOfStateOutputs<dim>> &eos_outputs) const;          
 
           void
-          get_h2o(std::vector<double> &h2omax,const MaterialModel::MaterialModelInputs<dim> &in,
+          get_h2o(std::vector<double> &h2omax, std::vector<bool> &islookup,
+            const double &temperature,
+            const double &pressure,
             const unsigned int &i,const unsigned int &j,const unsigned int &base,
             const std::vector<unsigned int> &n_phases_per_composition,
             const std::vector<double> &phase_function_values,
             const std::vector<double> &volume_fractions) const;
+
+          void
+          get_h2o_serp(std::vector<double> &h2omax,
+          const double &temperature,
+          const double &pressure,
+          const unsigned int &i,const unsigned int &j,const unsigned int &base,
+          const std::vector<unsigned int> &n_phases_per_composition,
+          const std::vector<double> &phase_function_values) const;
 
           /**
            * Function to fill the seismic velocity and phase volume additional outputs
