@@ -1297,8 +1297,7 @@ namespace aspect
             in.reinit(fe_values,
                       cell,
                       this->introspection(),
-                      solution,
-                      false);
+                      solution);
 
             this->get_material_model().evaluate(in, out);
 
@@ -1508,8 +1507,8 @@ namespace aspect
             material_model_inputs.reinit(finite_element_values,
                                          cell,
                                          this->introspection(),
-                                         this->get_current_linearization_point(),
-                                         false);
+                                         this->get_current_linearization_point());
+
             // We only need access to the MeltOutputs in p_c_scale().
             material_model_inputs.requested_properties = MaterialModel::MaterialProperties::additional_outputs;
 
@@ -1691,15 +1690,23 @@ namespace aspect
           std::make_unique<Assemblers::MeltPressureRHSCompatibilityModification<dim>> ());
       }
 
-    assemblers.advection_system.push_back(
-      std::make_unique<Assemblers::MeltAdvectionSystem<dim>> ());
-
-    if (this->get_parameters().fixed_heat_flux_boundary_indicators.size() != 0)
+    for (unsigned int i=0; i<1+this->introspection().n_compositional_fields; ++i)
       {
-        assemblers.advection_system_on_boundary_face.push_back(
-          std::make_unique<aspect::Assemblers::AdvectionSystemBoundaryHeatFlux<dim>>());
-        assemblers.advection_system_assembler_on_face_properties[0].need_face_material_model_data = true;
-        assemblers.advection_system_assembler_on_face_properties[0].need_face_finite_element_evaluation = true;
+        if ((i==0 && this->get_parameters().temperature_method == Parameters<dim>::AdvectionFieldMethod::fem_field)
+            ||
+            (i>0 && this->get_parameters().compositional_field_methods[i-1] == Parameters<dim>::AdvectionFieldMethod::fem_field)
+            ||
+            (i>0 && this->get_parameters().compositional_field_methods[i-1] == Parameters<dim>::AdvectionFieldMethod::fem_melt_field))
+          assemblers.advection_system[i].push_back(
+            std::make_unique<Assemblers::MeltAdvectionSystem<dim>> ());
+
+        if (this->get_parameters().fixed_heat_flux_boundary_indicators.size() != 0)
+          {
+            assemblers.advection_system_on_boundary_face[i].push_back(
+              std::make_unique<aspect::Assemblers::AdvectionSystemBoundaryHeatFlux<dim>>());
+            assemblers.advection_system_assembler_on_face_properties[0].need_face_material_model_data = true;
+            assemblers.advection_system_assembler_on_face_properties[0].need_face_finite_element_evaluation = true;
+          }
       }
   }
 
@@ -1862,8 +1869,7 @@ namespace aspect
             scratch.face_material_model_inputs.reinit  (scratch.face_finite_element_values,
                                                         cell,
                                                         this->introspection(),
-                                                        this->get_solution(),
-                                                        true);
+                                                        this->get_solution());
 
             this->get_material_model().evaluate(scratch.face_material_model_inputs, scratch.face_material_model_outputs);
 
