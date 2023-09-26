@@ -740,6 +740,7 @@ namespace aspect
           // Calculate volume fractions from mass fractions
           // If there is only one lookup table, set the mass and volume fractions to 1
           std::vector<double> mass_fractions;
+          std::vector<double> mass_fractions_viscosity;
           if (equation_of_state.number_of_lookups() == 1)
             mass_fractions.push_back(1.0);
           else
@@ -760,38 +761,80 @@ namespace aspect
               // of the vector that represents the background field. If there is no lookup table for
               // the background field, the mass_fractions vector is too long and we remove this element.
               if (!has_background_field)
-                mass_fractions.erase(mass_fractions.begin());
+                mass_fractions.erase(mass_fractions.begin());   
+
+              mass_fractions_viscosity = mass_fractions;
+              const std::vector<unsigned int> n_phases_per_composition = phase_function.n_phase_transitions_for_each_composition();
+              const int jserp = (n_phases_per_composition.size()-6);
+              unsigned int baseserp = 0;
+              for (unsigned int j = 0; j < (jserp+1); ++j) 
+              {                 
+                baseserp += n_phases_per_composition[j]+1;
+              } 
+              
+             
+              std::vector<double> h2omaxserp(volume_fractions[i].size(),0.0);
+              equation_of_state.get_h2o_serp(h2omaxserp, in.temperature[i], in.pressure[i], i, jserp, baseserp, n_phases_per_composition,
+                phase_function_values);
+              const double mass_fractions_non_serpentinite_old = 1 - mass_fractions_viscosity[n_phases_per_composition.size()-6+1];
+              if ((h2omaxserp[n_phases_per_composition.size()-6]>0.01) & (mass_fractions_non_serpentinite_old>1e-10))
+                {
+                  if (h2omaxserp[n_phases_per_composition.size()-6]>0.05) 
+                    {
+                      mass_fractions[n_phases_per_composition.size()-6+1] /= h2omaxserp[n_phases_per_composition.size()-6]; 
+                      mass_fractions_viscosity[n_phases_per_composition.size()-6+1] /= h2omaxserp[n_phases_per_composition.size()-6];  // serpentinite
+                    } else {
+                      mass_fractions[n_phases_per_composition.size()-6+1] /= 0.121;
+                      mass_fractions_viscosity[n_phases_per_composition.size()-6+1] /= 0.121;
+                    }
+                  
+                  if (mass_fractions_viscosity[n_phases_per_composition.size()-6+1]>0.1) 
+                    {
+                      mass_fractions_viscosity[n_phases_per_composition.size()-6+1] = 1;
+                    }
+                  const double mass_fractions_non_serpentinite_new = 1 - mass_fractions_viscosity[n_phases_per_composition.size()-6+1];
+                  for (unsigned int j=0; j<mass_fractions_viscosity.size(); ++j) 
+                    {
+                      if (j!=(n_phases_per_composition.size()-6+1))  
+                        {
+                          mass_fractions_viscosity[j] *= mass_fractions_non_serpentinite_new/mass_fractions_non_serpentinite_old;
+                        }
+                    }
+                }           
             }
+
+          
 
           volume_fractions[i] = MaterialUtilities::compute_volumes_from_masses(mass_fractions,
                                                                                eos_outputs[i].densities,
                                                                                true);
-          const std::vector<double> const_volume_fractions = MaterialUtilities::compute_volumes_from_masses(mass_fractions,
+          const std::vector<double> const_volume_fractions_viscosity = MaterialUtilities::compute_volumes_from_masses(mass_fractions_viscosity,
                                                                                eos_outputs[i].densities,
                                                                                true);
 
 	        bool plastic_yielding = false;
-          if (in.requests_property(MaterialProperties::viscosity)) {
+          if (in.requests_property(MaterialProperties::viscosity)) 
+          {
             // Currently, the viscosities for each of the compositional fields are calculated assuming
             // isostrain amongst all compositions, allowing calculation of the viscosity ratio.
             // TODO: This is only consistent with viscosity averaging if the arithmetic averaging
             // scheme is chosen. It would be useful to have a function to calculate isostress viscosities.
-            const IsostrainViscositiesLookup isostrain_viscosities = calculate_isostrain_viscosities_lookup(in, i, volume_fractions[i], phase_function_values, phase_function.n_phase_transitions_for_each_composition());
-            out.viscosities[i] = MaterialUtilities::average_value(volume_fractions[i], isostrain_viscosities.composition_viscosities, rheology->viscosity_averaging);
+            const IsostrainViscositiesLookup isostrain_viscosities = calculate_isostrain_viscosities_lookup(in, i, const_volume_fractions_viscosity, phase_function_values, phase_function.n_phase_transitions_for_each_composition());
+            out.viscosities[i] = MaterialUtilities::average_value(const_volume_fractions_viscosity, isostrain_viscosities.composition_viscosities, rheology->viscosity_averaging);
 
             if (DislocationViscosityOutputs<dim> *disl_viscosities_out = out.template get_additional_output<DislocationViscosityOutputs<dim>>())
               {
                 disl_viscosities_out->dislocation_viscosities[i] = std::min(
-                    MaterialUtilities::average_value(volume_fractions[i], isostrain_viscosities.viscosity_dislocation, rheology->viscosity_averaging),
+                    MaterialUtilities::average_value(const_volume_fractions_viscosity, isostrain_viscosities.viscosity_dislocation, rheology->viscosity_averaging),
                     1e300);
-                disl_viscosities_out->rheology_flags[i] = 0.0;//MaterialUtilities::average_value(volume_fractions[i], isostrain_viscosities.rheology_flags, MaterialModel::MaterialUtilities::maximum_composition);
+                disl_viscosities_out->rheology_flags[i] = 0.0;//MaterialUtilities::average_value(const_volume_fractions_viscosity, isostrain_viscosities.rheology_flags, MaterialModel::MaterialUtilities::maximum_composition);
               }
              // Decide based on the maximum composition if material is yielding.
              // This avoids for example division by zero for harmonic averaging (as plastic_yielding
              // holds values that are either 0 or 1), but might not be consistent with the viscosity
              // averaging chosen.
-              std::vector<double>::const_iterator max_composition = std::max_element(const_volume_fractions.begin(),const_volume_fractions.end());
-              plastic_yielding = isostrain_viscosities.composition_yielding[std::distance(const_volume_fractions.begin(),max_composition)];                                                                       
+              std::vector<double>::const_iterator max_composition = std::max_element(const_volume_fractions_viscosity.begin(),const_volume_fractions_viscosity.end());
+              plastic_yielding = isostrain_viscosities.composition_yielding[std::distance(const_volume_fractions_viscosity.begin(),max_composition)];                                                                       
           }
 	        rheology->strain_rheology.fill_reaction_outputs(in, i, rheology->min_strain_rate, plastic_yielding, out);
 
@@ -799,7 +842,6 @@ namespace aspect
           rheology->fill_plastic_outputs(i,volume_fractions[i],plastic_yielding,in,out, phase_function_values, phase_function.n_phase_transitions_for_each_composition());
           MaterialUtilities::fill_averaged_equation_of_state_outputs(eos_outputs[i], mass_fractions, volume_fractions[i], i, out);
           fill_prescribed_outputs(i, volume_fractions[i], in, out);
-        
         }
 
       rheology->strain_rheology.compute_finite_strain_reaction_terms(in, out);
@@ -825,112 +867,199 @@ namespace aspect
             }
         }
 
-      if ((in.current_cell.state() == IteratorState::valid) && (this->get_timestep_number() > 1) && (in.n_evaluation_points()>1))
-      {
-        // Assign the strain components to the compositional fields reaction terms.
-        // If there are too many fields, we simply fill only the first fields with the
-        // existing strain rate tensor components.
-        const std::vector<unsigned int> n_phases_per_composition = phase_function.n_phase_transitions_for_each_composition();
-        for (unsigned int q=0; q < in.n_evaluation_points(); ++q)
+      if (in.n_evaluation_points()>1) 
         {
-            
-          unsigned int base = 0;
-          for (unsigned int j = 0; j < volume_fractions[q].size() ; ++j)
-          {   
-            std::vector<double> h2omax(n_phases_per_composition.size(),0.0); // out.reaction_terms[q].size()
-            equation_of_state.get_h2o(h2omax,in,q,j,base,n_phases_per_composition,phase_function_values,volume_fractions[q]);
-            base += n_phases_per_composition[j]+1;
-            if ((j>0) && (j!=(n_phases_per_composition.size()-4))) {
-              if (in.composition[q][n_phases_per_composition.size()-4]>(h2omax[j]/100) && ((h2omax[j]/100)>0)) {
-                
-                out.reaction_terms[q][n_phases_per_composition.size()-3] =  in.composition[q][n_phases_per_composition.size()-4]-h2omax[j]/100;                  
-                out.reaction_terms[q][n_phases_per_composition.size()-4] -=  in.composition[q][n_phases_per_composition.size()-4]-h2omax[j]/100; 
-             
-              }
+          for (unsigned int i=0; i < in.n_evaluation_points(); ++i) 
+            {
+              const double reference_density = (this->get_adiabatic_conditions().is_initialized())
+                                              ?
+                                              this->get_adiabatic_conditions().density(in.position[i])
+                                              :
+                                              eos_outputs_all_phases.densities[0];
 
-              double sum_of_elems = 0.0;
-              for (auto& n : in.composition[q])
-                sum_of_elems += n;  
-              if ((sum_of_elems<0.9999) && (in.composition[q][n_phases_per_composition.size()-3]>1e-6) &&
-                 (j==(n_phases_per_composition.size()-3))) {
-                if ((1.0 - sum_of_elems) >=  12*in.composition[q][n_phases_per_composition.size()-3]) {
-                  out.reaction_terms[q][n_phases_per_composition.size()-3] -= in.composition[q][n_phases_per_composition.size()-3];
-                  out.reaction_terms[q][n_phases_per_composition.size()-6] = 12*in.composition[q][n_phases_per_composition.size()-3];
-                } else {
-                  out.reaction_terms[q][n_phases_per_composition.size()-3] -= (1.0 - sum_of_elems)/12;
-                  out.reaction_terms[q][n_phases_per_composition.size()-6] = 1.0 - sum_of_elems;                  
-                }
-              } 
+              const std::vector<unsigned int> n_phases_per_composition = phase_function.n_phase_transitions_for_each_composition();
+              unsigned int base = 0;
+              //const unsigned int n_phases = this->n_compositional_fields()+1+phase_function.n_phase_transitions();
+              //if (!std::isnan(this->get_timestep()))
+              // { // in.n_evaluation_points()>1
+              const int i_timestep = this->get_timestep_number();
+              if (i_timestep==0)
+                {
+
+                  std::vector<double> h2omax(n_phases_per_composition.size(),0.0);
+                  std::vector<bool> islookup(volume_fractions[i].size(),false); 
+                  for (unsigned int j = 0; j < volume_fractions[i].size(); ++j) 
+                    {   
+                      const double temperature_init = 273.0;
+                      const double pressure_init = 1e5;
+                      equation_of_state.get_h2o(h2omax,islookup,in.temperature[i],in.pressure[i],i,j,base,n_phases_per_composition,phase_function_values,volume_fractions[i]);
+                      base += n_phases_per_composition[j]+1;
+                      if  ((j>0) && (volume_fractions[i][j]>0)) 
+                        { 
+                          out.reaction_terms[i][n_phases_per_composition.size()-4] += volume_fractions[i][j]*h2omax[j];
+                        }                
+                    } 
+
+                } else if (this->simulator_is_past_initialization() && (i_timestep>0)) 
+                {
+
+                  if ((in.composition[i][n_phases_per_composition.size()-3]<1e-14) || (in.pressure[i]/(3300*9.8)>200e3))
+                    {
+                      out.reaction_terms[i][n_phases_per_composition.size()-3] =   -(in.composition[i][n_phases_per_composition.size()-3]);
+                    }
+
+                  // MAIN BOUND FLUID -> FREE FLUID
+                  const double boundfluid_cutoff = 1e-1;
+                  if ((in.composition[i][n_phases_per_composition.size()-4]>2e-4) )
+                    { 
+                      if ((in.composition[i][n_phases_per_composition.size()-12]>boundfluid_cutoff) || 
+                          (in.composition[i][n_phases_per_composition.size()-11]>boundfluid_cutoff) ||
+                          (in.composition[i][n_phases_per_composition.size()-10]>boundfluid_cutoff) || 
+                          (in.composition[i][n_phases_per_composition.size()-5]>boundfluid_cutoff) || 
+                          (in.composition[i][n_phases_per_composition.size()-9]>boundfluid_cutoff))
+                        {
+                          out.reaction_terms[i][n_phases_per_composition.size()-4] =  -(in.composition[i][n_phases_per_composition.size()-4]);
+                          out.reaction_terms[i][n_phases_per_composition.size()-3] =   (in.composition[i][n_phases_per_composition.size()-4]);
+                        }
+
+                      std::vector<double> h2omax(volume_fractions[i].size(),0.0); 
+                      std::vector<bool> islookup(volume_fractions[i].size(),false); 
+                      double h2omaxval = 0;
+                      double h2omaxval2 = 0;
+                      for (unsigned int j = 0; j < volume_fractions[i].size(); ++j) 
+                        { 
+                          equation_of_state.get_h2o(h2omax,islookup,in.temperature[i],in.pressure[i],i,j,base,n_phases_per_composition,phase_function_values,volume_fractions[i]);
+                          base += n_phases_per_composition[j]+1; 
+                          if ((j>0)) 
+                            {
+                              h2omaxval += volume_fractions[i][j]*h2omax[j];
+                            }
+                          if (h2omax[j]>h2omaxval2) 
+                            {
+                              h2omaxval2 = h2omax[j];
+                            }   
+
+
+                          if ((in.composition[i][n_phases_per_composition.size()-12]>boundfluid_cutoff) && j==1) 
+                            {
+                              out.reaction_terms[i][n_phases_per_composition.size()-4] += in.composition[i][n_phases_per_composition.size()-12]*h2omax[j];
+                              out.reaction_terms[i][n_phases_per_composition.size()-3] -= in.composition[i][n_phases_per_composition.size()-12]*h2omax[j];         
+                            } 
+                          if ((in.composition[i][n_phases_per_composition.size()-11]>boundfluid_cutoff) && j==2) 
+                            {
+                              out.reaction_terms[i][n_phases_per_composition.size()-4] += in.composition[i][n_phases_per_composition.size()-11]*h2omax[j];
+                              out.reaction_terms[i][n_phases_per_composition.size()-3] -= in.composition[i][n_phases_per_composition.size()-11]*h2omax[j];
+                            } 
+                          if ((in.composition[i][n_phases_per_composition.size()-10]>boundfluid_cutoff) && j==3) 
+                            {
+                              out.reaction_terms[i][n_phases_per_composition.size()-4] += in.composition[i][n_phases_per_composition.size()-10]*h2omax[j];
+                              out.reaction_terms[i][n_phases_per_composition.size()-3] -= in.composition[i][n_phases_per_composition.size()-10]*h2omax[j];         
+                            } 
+                          if ((in.composition[i][n_phases_per_composition.size()-9]>boundfluid_cutoff) && j==4) 
+                            {
+                              out.reaction_terms[i][n_phases_per_composition.size()-4] += in.composition[i][n_phases_per_composition.size()-9]*h2omax[j];
+                              out.reaction_terms[i][n_phases_per_composition.size()-3] -= in.composition[i][n_phases_per_composition.size()-9]*h2omax[j];
+                            }   
+                          if ((in.composition[i][n_phases_per_composition.size()-5]>boundfluid_cutoff) && j==8) 
+                            {
+                              out.reaction_terms[i][n_phases_per_composition.size()-4] += in.composition[i][n_phases_per_composition.size()-5]*h2omax[j];
+                              out.reaction_terms[i][n_phases_per_composition.size()-3] -= in.composition[i][n_phases_per_composition.size()-5]*h2omax[j];
+                            }
+                                                
+                        }
+                      if (out.reaction_terms[i][n_phases_per_composition.size()-4]>0) 
+                        {
+                          out.reaction_terms[i][n_phases_per_composition.size()-4] = 0;
+                          out.reaction_terms[i][n_phases_per_composition.size()-3] = 0;
+                        }
+                    } 
+                      
+                  // free water to serpentinite 
+                  std::vector<double> h2omaxserp(volume_fractions[i].size(),0.0); 
+                  if (((volume_fractions[i][0]>0.25) && ((in.composition[i][n_phases_per_composition.size()-3]>1e-5) || (out.reaction_terms[i][n_phases_per_composition.size()-3]>1e-5))) || (in.composition[i][n_phases_per_composition.size()-6]>1e-2)) 
+                    {                      
+                      const int jserp = (n_phases_per_composition.size()-6);
+                      unsigned int baseserp = 0;
+                      for (unsigned int j = 0; j < (jserp+1); ++j) 
+                      {                 
+                        baseserp += n_phases_per_composition[j]+1;
+                      } 
+                      equation_of_state.get_h2o_serp(h2omaxserp, in.temperature[i], in.pressure[i], i, jserp, baseserp, n_phases_per_composition,
+                       phase_function_values);
+                    }
+
+                   if ((in.composition[i][n_phases_per_composition.size()-6]>1e-2) && (h2omaxserp[n_phases_per_composition.size()-6]<0.01) && (h2omaxserp[n_phases_per_composition.size()-6]>1e-6))
+                     {
+                       out.reaction_terms[i][n_phases_per_composition.size()-3] += in.composition[i][n_phases_per_composition.size()-6]-h2omaxserp[n_phases_per_composition.size()-6];
+                       out.reaction_terms[i][n_phases_per_composition.size()-6] -= in.composition[i][n_phases_per_composition.size()-6]-h2omaxserp[n_phases_per_composition.size()-6];                     
+                     } 
+
+                   if ((volume_fractions[i][0]>0.25) && ((in.composition[i][n_phases_per_composition.size()-3]>1e-5) || (out.reaction_terms[i][n_phases_per_composition.size()-3]>1e-5))) 
+                     {                     
+                       // solidus calculation
+                       double T_final_solidus;
+                       if (in.composition[i][n_phases_per_composition.size()-3]>0) 
+                         {
+                           const double X_weight_percent_bulk_H2O = 1000*in.composition[i][n_phases_per_composition.size()-3]/reference_density;
+                           const double A1 = 1085.7;
+                           const double A2 = 132.9;
+                           const double A3 = -5.1;
+                           const double chi1 = 12.0; 
+                           const double chi2 = 1.0;
+                           const double lambda_saturated = 0.6;
+                           const double D_partitioning = 0.01;
+                           const double F_solidus = 0.0;
+                           const double K_solidus = 43.0;
+                           const double gamma = 0.75;
+
+                           const double P = in.pressure[i]/1e9; // to GPa
+                           const double T_solidus_celsius = A1 + A2 * P + A3 * std::pow(P, 2);
+                           const double X_weight_percent_saturated_H2O = chi1 * std::pow(P, lambda_saturated) + chi2 * P;
+                           const double X_weight_percent_H2O_partitioning = X_weight_percent_bulk_H2O / (D_partitioning + F_solidus * (1 - D_partitioning));
+
+                           const double X_weight_percent_H2O_solidus = std::min(X_weight_percent_saturated_H2O, X_weight_percent_H2O_partitioning);
+
+                           const double delta_T_solidus_celsius = K_solidus * std::pow(X_weight_percent_H2O_solidus, gamma);
+                           T_final_solidus = (T_solidus_celsius - delta_T_solidus_celsius) + 273.15;
+                         } else {
+                           T_final_solidus = 9999;
+                         }
+
+
+
+                       if (in.temperature[i]>T_final_solidus) {
+                         out.reaction_terms[i][n_phases_per_composition.size()-3] -= in.composition[i][n_phases_per_composition.size()-3]; 
+                        //  out.reaction_terms[i][n_phases_per_composition.size()-2] += in.composition[i][n_phases_per_composition.size()-3]; 
+
+                       } else if ((h2omaxserp[n_phases_per_composition.size()-6]>0.0101)) 
+                       {
+                         double bound_check  = in.composition[i][n_phases_per_composition.size()-6]+in.composition[i][n_phases_per_composition.size()-3];
+                         if (out.reaction_terms[i][n_phases_per_composition.size()-3]>0)
+                           {
+                             bound_check += out.reaction_terms[i][n_phases_per_composition.size()-3];
+                           }
+                         if  (h2omaxserp[n_phases_per_composition.size()-6]>(bound_check)) 
+                           {                            
+                            out.reaction_terms[i][n_phases_per_composition.size()-6] += in.composition[i][n_phases_per_composition.size()-3]; 
+                            if (out.reaction_terms[i][n_phases_per_composition.size()-3]>0)
+                              {
+                                out.reaction_terms[i][n_phases_per_composition.size()-6] += out.reaction_terms[i][n_phases_per_composition.size()-3];
+                                out.reaction_terms[i][n_phases_per_composition.size()-3] = 0;
+                              }                            
+                            out.reaction_terms[i][n_phases_per_composition.size()-3] -= in.composition[i][n_phases_per_composition.size()-3];
+                           } 
+                         else if (h2omaxserp[n_phases_per_composition.size()-6]>(in.composition[i][n_phases_per_composition.size()-6]))
+                           {     
+                            out.reaction_terms[i][n_phases_per_composition.size()-3] -= h2omaxserp[n_phases_per_composition.size()-6]-(in.composition[i][n_phases_per_composition.size()-6]); 
+                            out.reaction_terms[i][n_phases_per_composition.size()-6] += h2omaxserp[n_phases_per_composition.size()-6]-(in.composition[i][n_phases_per_composition.size()-6]);  
+                           }                   
+                        }                    
+                     }
+
+                }          
+
             }
-
-            //     if (this->get_timestep_number() > 1) {
-              // if ((j>0) && (j==(n_phases_per_composition.size()-3)) ) { // && (in.composition[q][j]>1e-8)
-                
-                
-              //   // const Quadrature<dim> quadrature(in.position); // this->get_fe().base_element(this->introspection().base_elements.compositional_fields).get_unit_support_points()
-              //   // FEValues<dim> fe_values (this->get_mapping(),
-              //   //                           this->get_fe(),
-              //   //                           quadrature,
-              //   //                           update_quadrature_points | update_gradients);
-                
-              //   const QGauss<dim> quadrature_formula (this->introspection().polynomial_degree.compositional_fields+1); // this->introspection().polynomial_degree.compositional_fields+1
-              //   FEValues<dim> fe_values (this->get_mapping(),
-              //                           this->get_fe(),
-              //                           quadrature_formula,
-              //                           update_gradients);
-              //   std::vector<Tensor<1,dim>> composition_gradients (quadrature_formula.size());
-              //   fe_values.reinit(in.current_cell);
-              //   fe_values[this->introspection().extractors.compositional_fields[n_phases_per_composition.size()-3]].get_function_gradients (this->get_solution(),
-              //       composition_gradients);
-              //   unsigned int qq = this->get_fe().system_to_component_index(0).first;
-              //   const Tensor<1,dim> advection_values = composition_gradients[q]; //   *   // n_phases_per_composition.size()-3
-              //   const double advection_unrolled = advection_values[Tensor<1,dim>::unrolled_to_component_indices(1)];
-
-              //   // for (unsigned int j=0; j<this->get_fe().base_element(this->introspection().base_elements.compositional_fields).dofs_per_cell; ++j)
-              //   //     this_indicator[idx] += composition_gradients[j].norm();
-                
-              //   // const Quadrature<dim> quadrature2(this->get_fe().base_element(this->introspection().base_elements.compositional_fields).get_unit_support_points()); // this->get_fe().base_element(this->introspection().base_elements.compositional_fields).get_unit_support_points();
-              //   // FEValues<dim> fe_values2 (this->get_mapping(),
-              //   //                           this->get_fe(),
-              //   //                           quadrature2,
-              //   //                           update_quadrature_points | update_gradients);
-              //   // std::vector<Tensor<1,dim>> composition_gradients2 (quadrature2.size());
-              //   // fe_values2.reinit(in.current_cell);
-              //   // fe_values2[this->introspection().extractors.compositional_fields[n_phases_per_composition.size()-3]].get_function_gradients (this->get_solution(),
-              //   //     composition_gradients2);
-              //   // const Tensor<1,dim> advection_values2 = composition_gradients2[q]; //   *   // n_phases_per_composition.size()-3
-                
-              //   //const double advection_unrolled2 = advection_values2[Tensor<1,dim>::unrolled_to_component_indices(1)];
-              //   // if (!isnan(advection_unrolled)) {
-              //   //   out.reaction_terms[q][n_phases_per_composition.size()-3] = (-6.168e-10)*this->get_timestep()*advection_unrolled; //*1.0e-15*0.01;
-              //   // }
-                
-              // }         
-          }
         }
-
-
-      } else if ((in.current_cell.state() == IteratorState::valid) && (this->get_timestep_number() == 1)) {
-        const std::vector<unsigned int> n_phases_per_composition = phase_function.n_phase_transitions_for_each_composition();
-        for (unsigned int q=0; q < in.n_evaluation_points(); ++q)
-        {
-          unsigned int base = 0;
-          const unsigned int n_phases = this->n_compositional_fields()+1+phase_function.n_phase_transitions();
-          std::vector<double> h2omax(n_phases_per_composition.size(),0.0);
-          for (unsigned int j = 0; j < volume_fractions[q].size() ; ++j) 
-          {   
-            equation_of_state.get_h2o(h2omax,in,q,j,base,n_phases_per_composition,phase_function_values,volume_fractions[q]);
-
-            base += n_phases_per_composition[j]+1;
-            const double x_location = in.position[q][0];
-            const double y_location = in.position[q][1];
-            if ((j>0) ) { // && (j!=(n_phases_per_composition.size()-3))
-              out.reaction_terms[q][n_phases_per_composition.size()-4] += h2omax[j]/100;
-              //out.reaction_terms[q][j] -= h2omax[j]/100;
-            }
-          } 
-        }        
-      }
 
 
     }
