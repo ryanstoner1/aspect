@@ -79,9 +79,10 @@ namespace aspect
 
       const FEValuesExtractors::Scalar solution_field = advection_field.scalar_extractor(introspection);
 
-      if (advection_field.advection_method (introspection)
-          == Parameters<dim>::AdvectionFieldMethod::prescribed_field_with_diffusion)
-        return;
+      Assert(advection_field.advection_method(introspection)
+             == Parameters<dim>::AdvectionFieldMethod::fem_field,
+             ExcMessage("The 'AdvectionSystem' assembler can only be executed for fields "
+                        "that use the advection method 'field'."));
 
       for (unsigned int q=0; q<n_q_points; ++q)
         {
@@ -111,9 +112,9 @@ namespace aspect
              :
              1.0);
 
-          Assert (density_c_P >= 0,
-                  ExcMessage ("The product of density and c_P needs to be a "
-                              "non-negative quantity."));
+          AssertThrow (density_c_P >= 0,
+                       ExcMessage ("The product of density and c_P needs to be a "
+                                   "non-negative quantity."));
 
           const double latent_heat_LHS =
             ((advection_field_is_temperature)
@@ -121,9 +122,9 @@ namespace aspect
              scratch.heating_model_outputs.lhs_latent_heat_terms[q]
              :
              0.0);
-          Assert (density_c_P + latent_heat_LHS >= 0,
-                  ExcMessage ("The sum of density times c_P and the latent heat contribution "
-                              "to the left hand side needs to be a non-negative quantity."));
+          AssertThrow (density_c_P + latent_heat_LHS >= 0,
+                       ExcMessage ("The sum of density times c_P and the latent heat contribution "
+                                   "to the left hand side needs to be a non-negative quantity."));
 
           const double gamma =
             ((advection_field_is_temperature)
@@ -327,9 +328,10 @@ namespace aspect
 
       const typename Simulator<dim>::AdvectionField advection_field = *scratch.advection_field;
 
-      if (advection_field.advection_method(introspection)
-          != Parameters<dim>::AdvectionFieldMethod::prescribed_field_with_diffusion)
-        return;
+      Assert(advection_field.advection_method(introspection)
+             == Parameters<dim>::AdvectionFieldMethod::prescribed_field_with_diffusion,
+             ExcMessage("The 'DiffusionSystem' assembler can only be executed for fields "
+                        "that use the advection method 'prescribed field with diffusion'."));
 
       const unsigned int n_q_points = scratch.finite_element_values.n_quadrature_points;
       const unsigned int advection_dofs_per_cell = data.local_dof_indices.size();
@@ -388,6 +390,35 @@ namespace aspect
       std::vector<double> residuals(scratch.finite_element_values.n_quadrature_points, 0.0);
 
       return residuals;
+    }
+
+
+
+    template <int dim>
+    std::vector<double>
+    DiffusionSystem<dim>::advection_prefactors(internal::Assembly::Scratch::ScratchBase<dim> &scratch_base) const
+    {
+      internal::Assembly::Scratch::AdvectionSystem<dim> &scratch = dynamic_cast<internal::Assembly::Scratch::AdvectionSystem<dim>&> (scratch_base);
+      return std::vector<double> (scratch.material_model_inputs.n_evaluation_points(), 0.0);
+    }
+
+
+
+    template <int dim>
+    std::vector<double>
+    DiffusionSystem<dim>::diffusion_prefactors(internal::Assembly::Scratch::ScratchBase<dim> &scratch_base) const
+    {
+      internal::Assembly::Scratch::AdvectionSystem<dim> &scratch = dynamic_cast<internal::Assembly::Scratch::AdvectionSystem<dim>&> (scratch_base);
+
+      const double prefactor = this->get_timestep() > 0
+                               ?
+                               this->get_parameters().diffusion_length_scale
+                               * this->get_parameters().diffusion_length_scale
+                               / this->get_timestep()
+                               :
+                               0.0;
+
+      return std::vector<double> (scratch.material_model_inputs.n_evaluation_points(), prefactor);
     }
 
 
@@ -486,9 +517,11 @@ namespace aspect
       const FiniteElement<dim> &fe = this->get_fe();
 
       const typename Simulator<dim>::AdvectionField advection_field = *scratch.advection_field;
-      if (advection_field.advection_method(introspection)
-          != Parameters<dim>::AdvectionFieldMethod::fem_darcy_field)
-        return;
+
+      Assert(advection_field.advection_method(introspection)
+             == Parameters<dim>::AdvectionFieldMethod::fem_darcy_field,
+             ExcMessage("The 'DarcySystem' assembler can only be executed for fields "
+                        "that use the advection method 'darcy field'."));
 
       const unsigned int n_q_points = scratch.finite_element_values.n_quadrature_points;
       const unsigned int advection_dofs_per_cell = data.local_dof_indices.size();
@@ -558,7 +591,7 @@ namespace aspect
           const double porosity         = std::max(scratch.material_model_inputs.composition[q][porosity_index],1e-10);
           const double K_D = melt_outputs->permeabilities[q] / melt_outputs->fluid_viscosities[q] / porosity;
           const Tensor<1,dim> current_u = scratch.current_velocity_values[q];
-          Tensor<1,dim> current_u_f = current_u - ((6.168e-10) * gravity / gravity.norm());
+          Tensor<1,dim> current_u_f = current_u - (3.16e-9) * gravity/gravity.norm();
 
           // Subtract off the mesh velocity for ALE corrections if necessary
           if (this->get_parameters().mesh_deformation_enabled)
@@ -620,7 +653,7 @@ namespace aspect
 
           const Tensor<1,dim> u = (scratch.old_velocity_values[q] +
                                    scratch.old_old_velocity_values[q]) / 2
-                                  - K_D*(rho_s - rho_f)*gravity/porosity;
+                                  - (3.16e-9) * gravity/gravity.norm();
 
           const double dField_dt = (this->get_old_timestep() == 0.0) ? 0.0 :
                                    (
@@ -661,8 +694,11 @@ namespace aspect
 
       const double time_step = this->get_timestep();
 
-      if (!advection_field.is_discontinuous(introspection))
-        return;
+      Assert(advection_field.is_discontinuous(introspection)
+             && advection_field.advection_method(introspection)
+             == Parameters<dim>::AdvectionFieldMethod::fem_field,
+             ExcMessage("The 'AdvectionSystemBoundaryFace' assembler can only be executed for fields "
+                        "that use the advection method 'field' and a discontinuous discretization."));
 
       // also have the number of dofs that correspond just to the element for
       // the system we are currently trying to assemble
@@ -723,9 +759,9 @@ namespace aspect
                  :
                  1.0);
 
-              Assert (density_c_P >= 0,
-                      ExcMessage ("The product of density and c_P needs to be a "
-                                  "non-negative quantity."));
+              AssertThrow (density_c_P >= 0,
+                           ExcMessage ("The product of density and c_P needs to be a "
+                                       "non-negative quantity."));
 
               const double conductivity =
                 ((advection_field.is_temperature())
@@ -739,9 +775,9 @@ namespace aspect
                  scratch.face_heating_model_outputs.lhs_latent_heat_terms[q]
                  :
                  0.0);
-              Assert (density_c_P + latent_heat_LHS >= 0,
-                      ExcMessage ("The sum of density times c_P and the latent heat contribution "
-                                  "to the left hand side needs to be a non-negative quantity."));
+              AssertThrow (density_c_P + latent_heat_LHS >= 0,
+                           ExcMessage ("The sum of density times c_P and the latent heat contribution "
+                                       "to the left hand side needs to be a non-negative quantity."));
 
               const double penalty = (advection_field.is_temperature()
                                       ?
@@ -927,8 +963,17 @@ namespace aspect
               scratch.neighbor_face_material_model_inputs.reinit  (*scratch.neighbor_face_finite_element_values,
                                                                    neighbor,
                                                                    this->introspection(),
-                                                                   this->get_current_linearization_point(),
-                                                                   true);
+                                                                   this->get_current_linearization_point());
+
+              this->create_additional_material_model_outputs(scratch.neighbor_face_material_model_outputs);
+              this->get_heating_model_manager().create_additional_material_model_inputs_and_outputs(scratch.neighbor_face_material_model_inputs,
+                  scratch.neighbor_face_material_model_outputs);
+
+              this->get_material_model().fill_additional_material_model_inputs(scratch.neighbor_face_material_model_inputs,
+                                                                               this->get_current_linearization_point(),
+                                                                               *scratch.neighbor_face_finite_element_values,
+                                                                               this->introspection());
+
               this->get_material_model().evaluate(scratch.neighbor_face_material_model_inputs,
                                                   scratch.neighbor_face_material_model_outputs);
 
@@ -987,9 +1032,9 @@ namespace aspect
                      :
                      1.0);
 
-                  Assert (density_c_P >= 0,
-                          ExcMessage ("The product of density and c_P needs to be a "
-                                      "non-negative quantity."));
+                  AssertThrow (density_c_P >= 0,
+                               ExcMessage ("The product of density and c_P needs to be a "
+                                           "non-negative quantity."));
 
                   const double conductivity =
                     ((advection_field.is_temperature())
@@ -1003,9 +1048,9 @@ namespace aspect
                      scratch.face_heating_model_outputs.lhs_latent_heat_terms[q]
                      :
                      0.0);
-                  Assert (density_c_P + latent_heat_LHS >= 0,
-                          ExcMessage ("The sum of density times c_P and the latent heat contribution "
-                                      "to the left hand side needs to be a non-negative quantity."));
+                  AssertThrow (density_c_P + latent_heat_LHS >= 0,
+                               ExcMessage ("The sum of density times c_P and the latent heat contribution "
+                                           "to the left hand side needs to be a non-negative quantity."));
 
                   const double penalty = (advection_field.is_temperature()
                                           ?
@@ -1031,9 +1076,9 @@ namespace aspect
                      :
                      1.0);
 
-                  Assert (neighbor_density_c_P >= 0,
-                          ExcMessage ("The product of density and c_P on the neighbor needs to be a "
-                                      "non-negative quantity."));
+                  AssertThrow (neighbor_density_c_P >= 0,
+                               ExcMessage ("The product of density and c_P on the neighbor needs to be a "
+                                           "non-negative quantity."));
 
                   const double neighbor_conductivity =
                     ((advection_field.is_temperature())
@@ -1047,9 +1092,9 @@ namespace aspect
                      scratch.neighbor_face_heating_model_outputs.lhs_latent_heat_terms[q]
                      :
                      0.0);
-                  Assert (neighbor_density_c_P + neighbor_latent_heat_LHS >= 0,
-                          ExcMessage ("The sum of density times c_P and the latent heat contribution "
-                                      "to the left hand side on the neighbor needs to be a non-negative quantity."));
+                  AssertThrow (neighbor_density_c_P + neighbor_latent_heat_LHS >= 0,
+                               ExcMessage ("The sum of density times c_P and the latent heat contribution "
+                                           "to the left hand side on the neighbor needs to be a non-negative quantity."));
 
                   const double neighbor_penalty = (advection_field.is_temperature()
                                                    ?
@@ -1068,11 +1113,11 @@ namespace aspect
                     std::max(density_c_P + latent_heat_LHS,
                              neighbor_density_c_P + neighbor_latent_heat_LHS);
 
-                  Assert (numbers::is_finite(max_density_c_P_and_latent_heat),
-                          ExcMessage ("The maximum product of density and c_P plus latent heat LHS on the neighbor needs to be a finite quantity."));
-                  Assert (max_density_c_P_and_latent_heat >= 0,
-                          ExcMessage ("The maximum product of density and c_P plus latent heat LHS on the neighbor needs to be a "
-                                      "non-negative quantity."));
+                  AssertThrow (numbers::is_finite(max_density_c_P_and_latent_heat),
+                               ExcMessage ("The maximum product of density and c_P plus latent heat LHS on the neighbor needs to be a finite quantity."));
+                  AssertThrow (max_density_c_P_and_latent_heat >= 0,
+                               ExcMessage ("The maximum product of density and c_P plus latent heat LHS on the neighbor needs to be a "
+                                           "non-negative quantity."));
 
                   /**
                    * The discontinuous Galerkin method uses 2 types of jumps over edges:
@@ -1259,8 +1304,7 @@ namespace aspect
               scratch.face_material_model_inputs.reinit  (*scratch.subface_finite_element_values,
                                                           cell,
                                                           this->introspection(),
-                                                          this->get_current_linearization_point(),
-                                                          true);
+                                                          this->get_current_linearization_point());
               this->get_material_model().evaluate(scratch.face_material_model_inputs,
                                                   scratch.face_material_model_outputs);
 
@@ -1283,8 +1327,7 @@ namespace aspect
               scratch.neighbor_face_material_model_inputs.reinit  (*scratch.neighbor_face_finite_element_values,
                                                                    neighbor_child,
                                                                    this->introspection(),
-                                                                   this->get_current_linearization_point(),
-                                                                   true);
+                                                                   this->get_current_linearization_point());
               this->get_material_model().evaluate(scratch.neighbor_face_material_model_inputs,
                                                   scratch.neighbor_face_material_model_outputs);
 
@@ -1343,9 +1386,9 @@ namespace aspect
                      :
                      1.0);
 
-                  Assert (density_c_P >= 0,
-                          ExcMessage ("The product of density and c_P needs to be a "
-                                      "non-negative quantity."));
+                  AssertThrow (density_c_P >= 0,
+                               ExcMessage ("The product of density and c_P needs to be a "
+                                           "non-negative quantity."));
 
                   const double conductivity =
                     ((advection_field.is_temperature())
@@ -1359,9 +1402,9 @@ namespace aspect
                      scratch.face_heating_model_outputs.lhs_latent_heat_terms[q]
                      :
                      0.0);
-                  Assert (density_c_P + latent_heat_LHS >= 0,
-                          ExcMessage ("The sum of density times c_P and the latent heat contribution "
-                                      "to the left hand side needs to be a non-negative quantity."));
+                  AssertThrow (density_c_P + latent_heat_LHS >= 0,
+                               ExcMessage ("The sum of density times c_P and the latent heat contribution "
+                                           "to the left hand side needs to be a non-negative quantity."));
 
                   const double penalty = (advection_field.is_temperature()
                                           ?
@@ -1387,9 +1430,9 @@ namespace aspect
                      :
                      1.0);
 
-                  Assert (neighbor_density_c_P >= 0,
-                          ExcMessage ("The product of density and c_P on the neighbor needs to be a "
-                                      "non-negative quantity."));
+                  AssertThrow (neighbor_density_c_P >= 0,
+                               ExcMessage ("The product of density and c_P on the neighbor needs to be a "
+                                           "non-negative quantity."));
 
                   const double neighbor_conductivity =
                     ((advection_field.is_temperature())
@@ -1403,9 +1446,9 @@ namespace aspect
                      scratch.neighbor_face_heating_model_outputs.lhs_latent_heat_terms[q]
                      :
                      0.0);
-                  Assert (neighbor_density_c_P + neighbor_latent_heat_LHS >= 0,
-                          ExcMessage ("The sum of density times c_P and the latent heat contribution "
-                                      "to the left hand side on the neighbor needs to be a non-negative quantity."));
+                  AssertThrow (neighbor_density_c_P + neighbor_latent_heat_LHS >= 0,
+                               ExcMessage ("The sum of density times c_P and the latent heat contribution "
+                                           "to the left hand side on the neighbor needs to be a non-negative quantity."));
 
                   const double neighbor_penalty = (advection_field.is_temperature()
                                                    ?
@@ -1424,11 +1467,11 @@ namespace aspect
                     std::max(density_c_P + latent_heat_LHS,
                              neighbor_density_c_P + neighbor_latent_heat_LHS);
 
-                  Assert (numbers::is_finite(max_density_c_P_and_latent_heat),
-                          ExcMessage ("The maximum product of density and c_P plus latent heat LHS on the neighbor needs to be a finite quantity."));
-                  Assert (max_density_c_P_and_latent_heat >= 0,
-                          ExcMessage ("The maximum product of density and c_P plus latent heat LHS on the neighbor needs to be a "
-                                      "non-negative quantity."));
+                  AssertThrow (numbers::is_finite(max_density_c_P_and_latent_heat),
+                               ExcMessage ("The maximum product of density and c_P plus latent heat LHS on the neighbor needs to be a finite quantity."));
+                  AssertThrow (max_density_c_P_and_latent_heat >= 0,
+                               ExcMessage ("The maximum product of density and c_P plus latent heat LHS on the neighbor needs to be a "
+                                           "non-negative quantity."));
 
                   /**
                    * The discontinuous Galerkin method uses 2 types of jumps over edges:
