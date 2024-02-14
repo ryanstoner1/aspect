@@ -1200,19 +1200,7 @@ namespace aspect
     {
       equation_of_state.create_additional_named_outputs(out);
 
-<<<<<<< HEAD
       if (this->introspection().composition_type_exists(CompositionalFieldDescription::density)
-=======
-      // These properties are useful as output.
-      if (out.template get_additional_output<DislocationViscosityOutputs<dim>>() == nullptr)
-        {
-          const unsigned int n_points = out.n_evaluation_points();
-          out.additional_outputs.push_back(
-            std::make_unique<MaterialModel::DislocationViscosityOutputs<dim>> (n_points));
-        }
-
-      if (this->introspection().composition_type_exists(Parameters<dim>::CompositionalFieldDescription::density)
->>>>>>> b3e0bd1ae (get and save rheology using lookup tables; begin tracking dehydration)
           && out.template get_additional_output<PrescribedFieldOutputs<dim>>() == nullptr)
         {
           const unsigned int n_points = out.n_evaluation_points();
