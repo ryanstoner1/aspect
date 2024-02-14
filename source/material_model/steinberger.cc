@@ -465,7 +465,7 @@ namespace aspect
 	  rheology->strain_rheology.fill_reaction_outputs(in, i, rheology->min_strain_rate, plastic_yielding, out);
 
           // Fill plastic outputs if they exist.
-          rheology->fill_plastic_outputs(i,volume_fractions[i],plastic_yielding,in,out, phase_function_values, phase_function.n_phase_transitions_for_each_composition());
+          rheology->fill_plastic_outputs(i,volume_fractions[i],plastic_yielding,in,out,isostrain_viscosities);
           MaterialUtilities::fill_averaged_equation_of_state_outputs(eos_outputs[i], mass_fractions, volume_fractions[i], i, out);
           fill_prescribed_outputs(i, volume_fractions[i], in, out);
         }
