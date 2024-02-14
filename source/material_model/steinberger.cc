@@ -788,7 +788,7 @@ namespace aspect
               std::vector<double>::const_iterator max_composition = std::max_element(const_volume_fractions.begin(),const_volume_fractions.end());
               plastic_yielding = isostrain_viscosities.composition_yielding[std::distance(const_volume_fractions.begin(),max_composition)];                                                                       
           // Fill plastic outputs if they exist.
-          rheology->fill_plastic_outputs(i,volume_fractions[i],plastic_yielding,in,out,isostrain_viscosities);
+          // rheology->fill_plastic_outputs(i,volume_fractions[i],plastic_yielding,in,out,isostrain_viscosities);
           }
 	        rheology->strain_rheology.fill_reaction_outputs(in, i, rheology->min_strain_rate, plastic_yielding, out);
 
