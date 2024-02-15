@@ -558,7 +558,7 @@ namespace aspect
           const double porosity         = std::max(scratch.material_model_inputs.composition[q][porosity_index],1e-10);
           const double K_D = melt_outputs->permeabilities[q] / melt_outputs->fluid_viscosities[q] / porosity;
           const Tensor<1,dim> current_u = scratch.current_velocity_values[q];
-          Tensor<1,dim> current_u_f = current_u - K_D * (rho_s - rho_f) * gravity;
+          Tensor<1,dim> current_u_f = current_u - (3.16e-9) * gravity/gravity.norm();
 
           // Subtract off the mesh velocity for ALE corrections if necessary
           if (this->get_parameters().mesh_deformation_enabled)
@@ -620,7 +620,7 @@ namespace aspect
 
           const Tensor<1,dim> u = (scratch.old_velocity_values[q] +
                                    scratch.old_old_velocity_values[q]) / 2
-                                  - K_D*(rho_s - rho_f)*gravity/porosity;
+                                  - (3.16e-9) * gravity/gravity.norm();
 
           const double dField_dt = (this->get_old_timestep() == 0.0) ? 0.0 :
                                    (
