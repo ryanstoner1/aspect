@@ -236,34 +236,6 @@ namespace aspect
     }
 
     template <int dim>
-    DislocationViscosityOutputs<dim>::DislocationViscosityOutputs (const unsigned int n_points)
-      :
-      NamedAdditionalMaterialOutputs<dim>(make_dislocation_viscosity_outputs_names()),
-      dislocation_viscosities(n_points, numbers::signaling_nan<double>()),
-      rheology_flags(n_points, numbers::signaling_nan<double>())
-    {}
-
-
-
-    template <int dim>
-    std::vector<double>
-    DislocationViscosityOutputs<dim>::get_nth_output(const unsigned int idx) const
-    {
-      AssertIndexRange (idx, 2);
-      switch (idx)
-        {
-          case 0:
-            return dislocation_viscosities;
-          case 1:
-            return rheology_flags;
-          default:
-            AssertThrow(false, ExcInternalError());
-        }
-      // we will never get here, so just return something
-      return dislocation_viscosities;
-    }
-
-    template <int dim>
     void
     Steinberger<dim>::initialize()
     {
@@ -763,7 +735,7 @@ namespace aspect
 
               mass_fractions_viscosity = mass_fractions;
               const std::vector<unsigned int> n_phases_per_composition = phase_function.n_phase_transitions_for_each_composition();
-              const int jserp = (n_phases_per_composition.size()-6);
+              const unsigned int jserp = (n_phases_per_composition.size()-6);
               unsigned int baseserp = 0;
               for (unsigned int j = 0; j < (jserp+1); ++j) 
               {                 
@@ -820,13 +792,6 @@ namespace aspect
             const IsostrainViscositiesLookup isostrain_viscosities = calculate_isostrain_viscosities_lookup(in, i, const_volume_fractions_viscosity, phase_function_values, phase_function.n_phase_transitions_for_each_composition());
             out.viscosities[i] = MaterialUtilities::average_value(const_volume_fractions_viscosity, isostrain_viscosities.composition_viscosities, rheology->viscosity_averaging);
 
-            if (DislocationViscosityOutputs<dim> *disl_viscosities_out = out.template get_additional_output<DislocationViscosityOutputs<dim>>())
-              {
-                disl_viscosities_out->dislocation_viscosities[i] = std::min(
-                    MaterialUtilities::average_value(const_volume_fractions_viscosity, isostrain_viscosities.viscosity_dislocation, rheology->viscosity_averaging),
-                    1e300);
-                disl_viscosities_out->rheology_flags[i] = 0.0;//MaterialUtilities::average_value(const_volume_fractions_viscosity, isostrain_viscosities.rheology_flags, MaterialModel::MaterialUtilities::maximum_composition);
-              }
              // Decide based on the maximum composition if material is yielding.
              // This avoids for example division by zero for harmonic averaging (as plastic_yielding
              // holds values that are either 0 or 1), but might not be consistent with the viscosity
@@ -1015,10 +980,11 @@ namespace aspect
                               +in.composition[i][n_phases_per_composition.size()-11]
                               +in.composition[i][n_phases_per_composition.size()-10]
                               +in.composition[i][n_phases_per_composition.size()-5]
-                              +in.composition[i][n_phases_per_composition.size()-9])<0.5) 
-                    && ((in.composition[i][n_phases_per_composition.size()-3]>1e-5) || (out.reaction_terms[i][n_phases_per_composition.size()-3]>1e-5))) || (in.composition[i][n_phases_per_composition.size()-6]>1e-2)) 
+                              +in.composition[i][n_phases_per_composition.size()-9]
+                              +in.composition[i][n_phases_per_composition.size()-8])<0.5) 
+                    && ((in.composition[i][n_phases_per_composition.size()-3]>1e-5) || (out.reaction_terms[i][n_phases_per_composition.size()-3]>1e-5))) || (in.composition[i][n_phases_per_composition.size()-6]>1e-4)) 
                     {                      
-                      const int jserp = (n_phases_per_composition.size()-6);
+                      const unsigned int jserp = (n_phases_per_composition.size()-6);
                       unsigned int baseserp = 0;
                       for (unsigned int j = 0; j < (jserp+1); ++j) 
                       {                 
@@ -1026,26 +992,12 @@ namespace aspect
                       } 
                       equation_of_state.get_h2o_serp(h2omaxserp, in.temperature[i], in.pressure[i], i, jserp, baseserp, n_phases_per_composition,
                        phase_function_values);
-                    }
-
-                   if ((in.composition[i][n_phases_per_composition.size()-6]>1e-2) && (h2omaxserp[n_phases_per_composition.size()-6]<0.01) )
-                     {
-                      out.reaction_terms[i][n_phases_per_composition.size()-3] += in.composition[i][n_phases_per_composition.size()-6]-h2omaxserp[n_phases_per_composition.size()-6];
-                      out.reaction_terms[i][n_phases_per_composition.size()-6] -= in.composition[i][n_phases_per_composition.size()-6]-h2omaxserp[n_phases_per_composition.size()-6];                     
-                     } 
-
-                   if (((in.composition[i][n_phases_per_composition.size()-12]
-                              +in.composition[i][n_phases_per_composition.size()-11]
-                              +in.composition[i][n_phases_per_composition.size()-10]
-                              +in.composition[i][n_phases_per_composition.size()-5]
-                              +in.composition[i][n_phases_per_composition.size()-9])<0.5)  
-                    && ((in.composition[i][n_phases_per_composition.size()-3]>1e-5) || (out.reaction_terms[i][n_phases_per_composition.size()-3]>1e-5))) 
-                     {                     
+                 
                        // solidus calculation
                        double T_final_solidus;
-                       if ((in.composition[i][n_phases_per_composition.size()-3]>0) && (in.pressure[i]>0)) 
+                       if ((in.composition[i][n_phases_per_composition.size()-3]>1e-5) && (in.pressure[i]>0)) 
                          {
-                           const double X_weight_percent_bulk_H2O = 1000*in.composition[i][n_phases_per_composition.size()-3]/reference_density;
+                           const double X_weight_percent_bulk_H2O = 0.3;//100*in.composition[i][n_phases_per_composition.size()-3]; //1000*in.composition[i][n_phases_per_composition.size()-3]/reference_density;
                            const double A1 = 1085.7;
                            const double A2 = 132.9;
                            const double A3 = -5.1;
@@ -1075,8 +1027,19 @@ namespace aspect
                        if (in.temperature[i]>T_final_solidus) {
                          out.reaction_terms[i][n_phases_per_composition.size()-3] -= in.composition[i][n_phases_per_composition.size()-3]; 
                         //  out.reaction_terms[i][n_phases_per_composition.size()-2] += in.composition[i][n_phases_per_composition.size()-3]; 
+                        //} else if ((in.composition[i][n_phases_per_composition.size()-6]>1e-4) && (out.reaction_terms[i][n_phases_per_composition.size()-6]>=0.0) && ((out.reaction_terms[i][n_phases_per_composition.size()-6]+in.composition[i][n_phases_per_composition.size()-6])<(0.9*h2omaxserp[n_phases_per_composition.size()-6]))) 
+                        //{
+                        
+                        //   out.reaction_terms[i][n_phases_per_composition.size()-6] = -(in.composition[i][n_phases_per_composition.size()-6]);
 
-                       } else if ((h2omaxserp[n_phases_per_composition.size()-6]>0.0101)) 
+                           //out.reaction_terms[i][n_phases_per_composition.size()-3] += in.composition[i][n_phases_per_composition.size()-6];
+                      
+                       } else if (((in.composition[i][n_phases_per_composition.size()-12]
+                              +in.composition[i][n_phases_per_composition.size()-11]
+                              +in.composition[i][n_phases_per_composition.size()-10]
+                              +in.composition[i][n_phases_per_composition.size()-5]
+                              +in.composition[i][n_phases_per_composition.size()-9]
+                              +in.composition[i][n_phases_per_composition.size()-8])<0.5) && (h2omaxserp[n_phases_per_composition.size()-6]>0.0101)) 
                        {
                          double bound_check  = in.composition[i][n_phases_per_composition.size()-6]+in.composition[i][n_phases_per_composition.size()-3];
                          if (out.reaction_terms[i][n_phases_per_composition.size()-3]>0)
@@ -1443,11 +1406,5 @@ namespace aspect
                                    "The default example data builds upon the thermodynamic "
                                    "database by Stixrude 2011 and assumes a pyrolitic composition by "
                                    "Ringwood 1988 but is easily replaceable by other data files. ")
-#define INSTANTIATE(dim) \
-  template class DislocationViscosityOutputs<dim>;
-
-    ASPECT_INSTANTIATE(INSTANTIATE)
-
-#undef INSTANTIATE
   }
 }
