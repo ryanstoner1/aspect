@@ -281,6 +281,15 @@ namespace aspect
       // If we use the full strain tensor, compute the change in the individual tensor components.
       rheology->strain_rheology.compute_finite_strain_reaction_terms(in, out);
 
+      for (unsigned int i=0; i < in.n_evaluation_points(); ++i)
+        {
+	 if (in.pressure[i]>1.6e9) 
+	 {
+	 	out.reaction_terms[i][0] = -in.composition[i][0];
+         	out.reaction_terms[i][1] = in.composition[i][0];
+	 }
+	}
+
       if (rheology->use_elasticity)
         {
           rheology->elastic_rheology.fill_elastic_force_outputs(in, average_elastic_shear_moduli, out);

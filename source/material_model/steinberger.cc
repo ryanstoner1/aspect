@@ -758,7 +758,7 @@ namespace aspect
                       mass_fractions_viscosity[n_phases_per_composition.size()-6+1] /= 0.121;
                     }
                   
-                  if (mass_fractions_viscosity[n_phases_per_composition.size()-6+1]>0.1) 
+                  if ((mass_fractions_viscosity[n_phases_per_composition.size()-6+1]>0.1)) 
                     {
                       mass_fractions_viscosity[n_phases_per_composition.size()-6+1] = 1;
                     }
@@ -866,23 +866,23 @@ namespace aspect
                        { 
                          //out.reaction_terms[i][n_phases_per_composition.size()-4] += h2omax[j]*volume_fractions[i][j];
 
-                        if (j==1) 
+                        if (j==2) 
                           {
                             out.reaction_terms[i][n_phases_per_composition.size()-4] += h2omax[j]*in.composition[i][n_phases_per_composition.size()-12];         
                           } 
-                        if (j==2) 
+                        if (j==3) 
                           {
                             out.reaction_terms[i][n_phases_per_composition.size()-4] += h2omax[j]*in.composition[i][n_phases_per_composition.size()-11]; 
                           } 
-                        if (j==3) 
+                        if (j==4) 
                           {
                             out.reaction_terms[i][n_phases_per_composition.size()-4] += h2omax[j]*in.composition[i][n_phases_per_composition.size()-10];       
                           } 
-                        if (j==4) 
+                        if (j==5) 
                           {
                             out.reaction_terms[i][n_phases_per_composition.size()-4] += h2omax[j]*in.composition[i][n_phases_per_composition.size()-9];      
                           }   
-                        if (j==8) 
+                        if (j==9) 
                           {
                             out.reaction_terms[i][n_phases_per_composition.size()-4] += h2omax[j]*in.composition[i][n_phases_per_composition.size()-5]; 
                           }
@@ -892,7 +892,7 @@ namespace aspect
                 } else if (this->simulator_is_past_initialization() && (i_timestep>1)) 
                 {
                   double pressure_adiabatic = this->get_adiabatic_conditions().pressure(in.position[i]);
-                  if ((in.composition[i][n_phases_per_composition.size()-3]<1e-14) || (pressure_adiabatic>8e9))
+                  if ((in.composition[i][n_phases_per_composition.size()-3]<1e-14) || (pressure_adiabatic>=5.5e9))
                     {
                       out.reaction_terms[i][n_phases_per_composition.size()-3] =   -(in.composition[i][n_phases_per_composition.size()-3]);
                     }
@@ -940,27 +940,27 @@ namespace aspect
                               (in.composition[i][n_phases_per_composition.size()-5]>boundfluid_cutoff) || 
                               (in.composition[i][n_phases_per_composition.size()-9]>boundfluid_cutoff))
                           {
-                            if ((in.composition[i][n_phases_per_composition.size()-12]>0.0) && j==1) 
+                            if ((in.composition[i][n_phases_per_composition.size()-12]>0.0) && j==2) 
                               {
                                 out.reaction_terms[i][n_phases_per_composition.size()-4] += in.composition[i][n_phases_per_composition.size()-12]*h2omax[j];
                                 out.reaction_terms[i][n_phases_per_composition.size()-3] -= in.composition[i][n_phases_per_composition.size()-12]*h2omax[j];         
                               } 
-                            if ((in.composition[i][n_phases_per_composition.size()-11]>0.0) && j==2) 
+                            if ((in.composition[i][n_phases_per_composition.size()-11]>0.0) && j==3) 
                               {
                                 out.reaction_terms[i][n_phases_per_composition.size()-4] += in.composition[i][n_phases_per_composition.size()-11]*h2omax[j];
                                 out.reaction_terms[i][n_phases_per_composition.size()-3] -= in.composition[i][n_phases_per_composition.size()-11]*h2omax[j];
                               } 
-                            if ((in.composition[i][n_phases_per_composition.size()-10]>0.0) && j==3) 
+                            if ((in.composition[i][n_phases_per_composition.size()-10]>0.0) && j==4) 
                               {
                                 out.reaction_terms[i][n_phases_per_composition.size()-4] += in.composition[i][n_phases_per_composition.size()-10]*h2omax[j];
                                 out.reaction_terms[i][n_phases_per_composition.size()-3] -= in.composition[i][n_phases_per_composition.size()-10]*h2omax[j];         
                               } 
-                            if ((in.composition[i][n_phases_per_composition.size()-9]>0.0) && j==4) 
+                            if ((in.composition[i][n_phases_per_composition.size()-9]>0.0) && j==5) 
                               {
                                 out.reaction_terms[i][n_phases_per_composition.size()-4] += in.composition[i][n_phases_per_composition.size()-9]*h2omax[j];
                                 out.reaction_terms[i][n_phases_per_composition.size()-3] -= in.composition[i][n_phases_per_composition.size()-9]*h2omax[j];
                               }   
-                            if ((in.composition[i][n_phases_per_composition.size()-5]>0.0) && j==8) 
+                            if ((in.composition[i][n_phases_per_composition.size()-5]>0.0) && j==9) 
                               {
                                 out.reaction_terms[i][n_phases_per_composition.size()-4] += in.composition[i][n_phases_per_composition.size()-5]*h2omax[j];
                                 out.reaction_terms[i][n_phases_per_composition.size()-3] -= in.composition[i][n_phases_per_composition.size()-5]*h2omax[j];
@@ -982,7 +982,7 @@ namespace aspect
                               +in.composition[i][n_phases_per_composition.size()-5]
                               +in.composition[i][n_phases_per_composition.size()-9]
                               +in.composition[i][n_phases_per_composition.size()-8])<0.5) 
-                    && ((in.composition[i][n_phases_per_composition.size()-3]>1e-5) || (out.reaction_terms[i][n_phases_per_composition.size()-3]>1e-5))) || (in.composition[i][n_phases_per_composition.size()-6]>1e-4)) 
+                    && ((in.composition[i][n_phases_per_composition.size()-3]>1e-5) || (out.reaction_terms[i][n_phases_per_composition.size()-3]>1e-5))) || ((in.composition[i][n_phases_per_composition.size()-6]>1e-4) && (pressure_adiabatic<5.5e9))) 
                     {                      
                       const unsigned int jserp = (n_phases_per_composition.size()-6);
                       unsigned int baseserp = 0;
@@ -1021,16 +1021,18 @@ namespace aspect
                          } else {
                            T_final_solidus = 9999;
                          }
-
-
+		       if ((in.pressure[i]<(-(1666666*in.temperature[i])+3088332718.0)) && (in.composition[i][n_phases_per_composition.size()-6]>0.01))
+			{
+			   out.viscosities[i] *= (1.00);
+			}
 
                        if (in.temperature[i]>T_final_solidus) {
-                         out.reaction_terms[i][n_phases_per_composition.size()-3] -= in.composition[i][n_phases_per_composition.size()-3]; 
-                        //  out.reaction_terms[i][n_phases_per_composition.size()-2] += in.composition[i][n_phases_per_composition.size()-3]; 
-                        //} else if ((in.composition[i][n_phases_per_composition.size()-6]>1e-4) && (out.reaction_terms[i][n_phases_per_composition.size()-6]>=0.0) && ((out.reaction_terms[i][n_phases_per_composition.size()-6]+in.composition[i][n_phases_per_composition.size()-6])<(0.9*h2omaxserp[n_phases_per_composition.size()-6]))) 
-                        //{
+                         out.reaction_terms[i][n_phases_per_composition.size()-3] -= in.composition[i][n_phases_per_composition.size()-3];
+                         out.reaction_terms[i][n_phases_per_composition.size()-13] += in.composition[i][n_phases_per_composition.size()-3]; 
+                        } else if ((in.composition[i][n_phases_per_composition.size()-6]>1e-4) && (out.reaction_terms[i][n_phases_per_composition.size()-6]>=0.0) && ((in.composition[i][n_phases_per_composition.size()-6]*0.0)>(h2omaxserp[n_phases_per_composition.size()-6]))) 
+                        {
                         
-                        //   out.reaction_terms[i][n_phases_per_composition.size()-6] = -(in.composition[i][n_phases_per_composition.size()-6]);
+                           out.reaction_terms[i][n_phases_per_composition.size()-6] = -(in.composition[i][n_phases_per_composition.size()-6]);
 
                            //out.reaction_terms[i][n_phases_per_composition.size()-3] += in.composition[i][n_phases_per_composition.size()-6];
                       
@@ -1061,7 +1063,18 @@ namespace aspect
                             out.reaction_terms[i][n_phases_per_composition.size()-3] -= h2omaxserp[n_phases_per_composition.size()-6]-(in.composition[i][n_phases_per_composition.size()-6]); 
                             out.reaction_terms[i][n_phases_per_composition.size()-6] += h2omaxserp[n_phases_per_composition.size()-6]-(in.composition[i][n_phases_per_composition.size()-6]);  
                            }                   
-                        }                    
+                        }   else if (((in.composition[i][n_phases_per_composition.size()-12]
+                              +in.composition[i][n_phases_per_composition.size()-11]
+                              +in.composition[i][n_phases_per_composition.size()-10]
+                              +in.composition[i][n_phases_per_composition.size()-5]
+                              +in.composition[i][n_phases_per_composition.size()-9]
+                              +in.composition[i][n_phases_per_composition.size()-8])<0.5) && (in.composition[i][n_phases_per_composition.size()-3]>1e-5) && (this->get_timestep_number() > 100)) 
+                        {
+                          if ((0.01*out.viscosities[i])>2.5e18)
+                          {
+                            out.viscosities[i] *= 0.01;
+                          }                          
+                        }                 
                      }
 
                 }          

@@ -789,7 +789,7 @@ namespace aspect
                   vp_values[i%n_temperature][i/n_temperature]=row_values[prp_indices[3]];
                   vs_values[i%n_temperature][i/n_temperature]=row_values[prp_indices[4]];
                   enthalpy_values[i%n_temperature][i/n_temperature]=row_values[prp_indices[5]];
-                  rheology_phase_flags[i%n_temperature][i/n_temperature]=row_values[prp_indices[6]];
+                  rheology_phase_flags[i%n_temperature][i/n_temperature]=static_cast<unsigned int>(row_values[prp_indices[6]]);
                   melt_values[i%n_temperature][i/n_temperature]=row_values[prp_indices[7]];
                   h2o_fugacity_values[i%n_temperature][i/n_temperature]=row_values[prp_indices[8]];
                   h2o_max_values[i%n_temperature][i/n_temperature]=row_values[prp_indices[9]];
@@ -813,7 +813,7 @@ namespace aspect
                   vp_values[i/n_pressure][i%n_pressure]=row_values[prp_indices[3]];
                   vs_values[i/n_pressure][i%n_pressure]=row_values[prp_indices[4]];
                   enthalpy_values[i/n_pressure][i%n_pressure]=row_values[prp_indices[5]];
-                  rheology_phase_flags[i/n_pressure][i%n_pressure]=row_values[prp_indices[6]];
+                  rheology_phase_flags[i/n_pressure][i%n_pressure]=static_cast<unsigned int>(row_values[prp_indices[6]]);
                   melt_values[i/n_pressure][i%n_pressure]=row_values[prp_indices[7]];
                   h2o_fugacity_values[i/n_pressure][i%n_pressure]=row_values[prp_indices[8]];
                   h2o_max_values[i/n_pressure][i%n_pressure]=row_values[prp_indices[9]];

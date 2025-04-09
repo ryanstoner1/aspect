@@ -330,10 +330,21 @@ namespace aspect
           for (unsigned int k=0; k<(n_phases_per_composition[j]+1); k++) { // left
             const unsigned int c = base-j+k; // phase transition index
             bool is_phase;
+	    bool is_phase_next = false;
+	    double phase_next = 0.0;
             if (k!=n_phases_per_composition[j])
             {
               is_phase = ((phases_using_lookup_viscosities[base+k]==1) &&
                     (phase_function_values[c]<1));
+	      if (k>0)
+	      {
+	       is_phase = is_phase && (phase_function_values[c-1]==1);	      
+	      }
+	      if ((phases_using_lookup_viscosities[base+k+1]==1) && is_phase)
+	      {
+		phase_next += phase_function_values[c];     
+	      }
+
             } else {
               is_phase = ((phases_using_lookup_viscosities[base+k]==1) &&
                     (phase_function_values[c-1]>0));
@@ -346,7 +357,7 @@ namespace aspect
             }
             if (k!=n_phases_per_composition[j])
             {
-              h2omax[j] += h2o*(1-phase_function_values[c]);              
+              h2omax[j] += h2o*(1-phase_function_values[c])+h2o*phase_next;              
             } else {
               h2omax[j] += h2o*phase_function_values[c-1];
             }
@@ -545,20 +556,20 @@ namespace aspect
             bool is_phase_pseudo_peierls;
             if (k!=n_phases_per_composition[j])
             {
-              is_phase = ((phases_using_lookup_viscosities[base+k]==1) &&
+              is_phase = ((phases_using_material_files[base+k]==1) &&
                     (phase_function_values[c]<1));
               is_phase_pseudo_peierls = ((phases_using_lookup_viscosities[base+k]==2) &&
-                    (phase_function_values[c]<1));
+                   (phase_function_values[c]<1));
             } else {
-              is_phase = ((phases_using_lookup_viscosities[base+k]==1) &&
+              is_phase = ((phases_using_material_files[base+k]==1) &&
                     (phase_function_values[c-1]>0));
-              is_phase_pseudo_peierls = ((phases_using_lookup_viscosities[base+k]==2) &&
-                    (phase_function_values[c-1]>0));
+is_phase_pseudo_peierls = ((phases_using_lookup_viscosities[base+k]==2) &&
+(phase_function_values[c-1]>0));
             }
 
             if  (is_phase) {
-              rheology_flag = material_lookup[j]->viscosity_flag(temperature_for_viscosity,pressure_for_creep); 
-              if ((rheology_flag<4) && (temperature_for_viscosity>323.0)) {
+              rheology_flag = material_lookup[j]->viscosity_flag(temperature_for_viscosity,pressure_for_creep);
+              if ((rheology_flag<5) && (temperature_for_viscosity>323.0)) {
                 dislocation_creep.activation_energies_dislocation[base+k] = activation_energies_dislocation_lookup[rheology_flag];
                 dislocation_creep.prefactors_dislocation[base+k] = prefactors_dislocation_lookup[rheology_flag];
                 dislocation_creep.stress_exponents_dislocation[base+k] = stress_exponents_dislocation_lookup[rheology_flag];
@@ -592,12 +603,12 @@ namespace aspect
                   std::pow(fitting_parameters_Peierls_lookup[rheology_flag],p_Peierls_lookup[rheology_flag]))/(
                     constants::gas_constant*temperature_for_viscosity);
                 const double n_approx = s_approx + stress_exponents_Peierls_lookup[rheology_flag];
-                const double A_denominator = 2*std::pow(prefactors_Peierls_lookup[rheology_flag]*std::pow(
+                const double A_denominator = std::pow(prefactors_Peierls_lookup[rheology_flag]*std::pow(
                   fitting_parameters_Peierls_lookup[rheology_flag]*reference_stress_Peierls_lookup[rheology_flag],
                   stress_exponents_Peierls_lookup[rheology_flag]),1/n_approx);
                 const double A_numerator = fitting_parameters_Peierls_lookup[rheology_flag]*reference_stress_Peierls_lookup[rheology_flag];
                 dislocation_creep.activation_energies_dislocation[base+k] = Ea;
-                dislocation_creep.prefactors_dislocation[base+k] = A_numerator/A_denominator;
+                dislocation_creep.prefactors_dislocation[base+k] = std::pow((A_numerator/A_denominator),(-n_approx));
                 dislocation_creep.stress_exponents_dislocation[base+k] = n_approx;
               //   dislocation_creep.stress_exponents_dislocation[base+k] = stress_exponents_dislocation_lookup[rheology_flag];
               //   dislocation_creep.activation_volumes_dislocation[base+k] = activation_volumes_dislocation_lookup[rheology_flag];
@@ -820,7 +831,7 @@ namespace aspect
         std::sort(std::begin(unique_material_file_names),std::end(unique_material_file_names));
         auto it = std::unique(std::begin(unique_material_file_names), std::end(unique_material_file_names));
         unique_material_file_names.erase(it, unique_material_file_names.end());     
-        expected_n_phases_per_viscosity_lookup = std::make_unique<std::vector<unsigned int>> (viscosity_lookup_phase_names.size(),unique_material_file_names.size()-1);
+        expected_n_phases_per_viscosity_lookup = std::make_unique<std::vector<unsigned int>> (viscosity_lookup_phase_names.size(),1);//unique_material_file_names.size()-1);
 	      peierls_expected_n_phases_per_viscosity_lookup = std::make_unique<std::vector<unsigned int>> (peierls_viscosity_lookup_phase_names.size(),unique_material_file_names.size()-1);
 	      exponential_melt_weakening_factor = prm.get_double("Exponential melt weakening factor");        
 
@@ -844,8 +855,7 @@ namespace aspect
                                                                "Prefactors for dislocation creep lookups",
                                                                true,
                                                                expected_n_phases_per_viscosity_lookup);  
-
-        stress_exponents_dislocation_lookup = Utilities::parse_map_to_double_array (prm.get("Stress exponents for dislocation creep lookups"),
+	stress_exponents_dislocation_lookup = Utilities::parse_map_to_double_array (prm.get("Stress exponents for dislocation creep lookups"),
                                                                viscosity_lookup_phase_names,
                                                                false,
                                                                "Stress exponents for dislocation creep lookups",
