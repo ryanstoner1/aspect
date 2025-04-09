@@ -1,0 +1,283 @@
+set Dimension				   = 2
+set Use years in output instead of seconds = true
+set Maximum time step			   = 50 
+set Output directory 			   = outputs/rc3_part_lookup_serp_morb_bas_h2o_1denslookup_1visclookup_cohes_1-MPa_freesurf_y_extent_1450km_sed_1km_pel2_smu0_01_cmu0_04_deserp_erase_res5_5_run27
+set Resume computation			   = auto
+set Maximum first time step                = 1e2
+set Maximum relative increase in time step = 30
+set Maximum time step                      = 1e5
+set End time = 50e6
+### SOLVER
+# nonlinear
+set Nonlinear solver scheme                = single Advection, iterated Stokes
+set Nonlinear solver tolerance             = 5.0e-3
+set Max nonlinear iterations               = 60
+set CFL number                             = 0.5
+
+# linear solver
+subsection Solver parameters
+  subsection Stokes solver parameters
+    set Stokes solver type = block GMG
+    set Linear solver tolerance                 = 5.0e-4
+    set Number of cheap Stokes solver steps     = 15000 
+    set GMRES solver restart length = 200
+  end
+end
+
+subsection Discretization
+  set Temperature polynomial degree       = 2
+  set Composition polynomial degree       = 2
+end
+
+### DOMAIN
+subsection Boundary temperature model
+  set List of model names = box
+set Fixed temperature boundary indicators = bottom, top 
+  subsection Box
+    set Bottom temperature = 1694 
+    set Top temperature = 273
+end
+end
+
+subsection Boundary velocity model
+  set Tangential velocity boundary indicators = left, right, bottom
+end
+#-------------------------------
+
+subsection Geometry model
+  set Model name = box
+
+  subsection Box
+    set X repetitions = 5
+    set X extent  = 5800e3
+    set Y extent  = 1450e3
+  end
+end
+
+subsection Mesh refinement
+
+  set Initial global refinement                = 5 
+  set Initial adaptive refinement              = 5 
+  set Time steps between mesh refinement       = 5
+  set Refinement fraction                      = 0.2
+  set Coarsening fraction                      = 0.35
+  set Strategy                                 = viscosity, temperature,composition threshold, minimum refinement function,isosurfaces
+  set Refinement criteria scaling factors      = 1.5, 1.5,1, 1, 1
+  set Refinement criteria merge operation      = max
+  set Run postprocessors on initial refinement = false
+  subsection Isosurfaces  
+    set Isosurfaces = 8,10, melth2o: 0.01|10; 8,10, gabbro: 0.1|10; 8,10, gabbro_init: 0.1|10; 8,9, weakbox: 0.001|10; 8,10, ccrust: 0.01|10; 8,10, ocrust: 0.001|10; 10,10, serp: 0.01|10     
+end 
+  subsection Composition threshold
+    set Compositional field thresholds         = 0.01, 0.01, 0.01, 0.001, 0.001, 0.001, 0.001 , 0.01, 0.001, 0.001, 0.001, 0.001
+  end
+
+  subsection Minimum refinement function
+    set Coordinate system   = cartesian
+    set Variable names      = x, y
+    set Function constants  = lthick=10e3, yd=1450e3, x0=3.1e6, x1 = 3.25e6, y0=10e3, y1=40e3
+    set Function expression = if(y>=(yd-lthick), 5, \
+                              if((y>=(yd-662.e3) && y<=(yd-658.e3)), 9, 1 ))
+
+  end
+
+end
+
+#------initial temp and comp fields----
+subsection Initial temperature model
+  set Model name = ascii data
+
+   subsection Ascii data model
+     set Data directory = /work2/09184/rstoner1/stampede3/software/example-subd-model/input-geometries/outputs/
+     set Data file name = temp_70flatdip_SP100Ma-OP30km-T1694.txt
+   end
+end
+
+subsection Compositional fields
+   set Number of fields = 12
+   set Names of fields  = melth2o,gabbro, gabbro_init, ocrust_init, sediment, ccrust, weakbox, serp, ocrust, boundwater, freefluid, porosity
+   set Compositional field methods = field,field, field, field, field, field, field, field, field, field, darcy field, darcy field
+   set Types of fields = unspecified,unspecified, unspecified, unspecified, unspecified, unspecified, unspecified, unspecified, unspecified, unspecified, generic, porosity
+end
+
+subsection Initial composition model
+  set Model name = ascii data
+
+   subsection Ascii data model
+     set Data directory = /work2/09184/rstoner1/stampede3/software/example-subd-model/input-geometries/outputs/
+     set Data file name = res2_1x_weakbox-20km_50dip_freesurf_basalt-ocean-crust-8km_cont-crust-8km_contOP-10km_sed-1km_serp-0km_rad100_melth2o.txt
+
+   end
+end
+
+subsection Material model
+  set Model name = Steinberger
+  set Material averaging = geometric average
+  subsection Steinberger model
+    set Use plastic damper = true
+    set Plastic damper viscosity = 2.5e18
+
+    # reference stuff
+    set Reference temperature =   1694
+    set Minimum strain rate   =   1.e-20
+    set Adiabat temperature gradient for viscosity =   9.24e-09 # 0.3 K/km
+       
+    # Set up phase transitions so that crust becomes background material past 100 km, and
+    # dislocation becomes inactive in the lower mantle for all fields.
+    set Phase transition depths           =   background: 660e3, melth2o: 660e3, gabbro: 200e3|660e3, gabbro_init: 200e3|660e3, ocrust_init: 200e3|660e3,  sediment: 200e3|660e3,  ccrust: 660e3, weakbox: 660e3, serp: 200e3|660e3, ocrust: 200e3|660e3, boundwater: 200e3|660e3, freefluid: 660e3, porosity: 660e3  
+    set Phase transition widths           =   background: 1e3, melth2o: 1e3,  gabbro: 1e3|1e3, gabbro_init: 1e3|1e3, ocrust_init: 1e3|1e3,     sediment: 1e3|1e3,    ccrust: 1e3, weakbox: 1e3,   serp:1e3|1e3, ocrust: 1e3|1e3, boundwater: 1e3|1e3, freefluid: 1e3, porosity: 1e3
+    set Phase transition temperatures     =   background: 1694, melth2o: 1694,  gabbro: 1694|1694, gabbro_init: 1694|1694, ocrust_init: 1694|1694,   sediment: 1694|1694,   ccrust: 1694, weakbox: 1694,  serp:1694|1694, ocrust: 1694|1694, boundwater: 1694|1694, freefluid: 1694, porosity: 1694
+    set Phase transition Clapeyron slopes =   background: 0, melth2o: 0,      gabbro: 0|0,    gabbro_init: 0|0,  ocrust_init: 0|0,         sediment: 0|0,      ccrust: 0, weakbox: 0,     serp:0|0, ocrust: 0|0, boundwater: 0|0, freefluid: 0, porosity: 0
+    #
+    # Viscosity cut offs
+    set Minimum viscosity   =   background: 2.5e18|2.5e18, melth2o: 2.5e18|2.5e18, gabbro: 2.5e18|2.5e18|2.5e18, gabbro_init: 2.5e18|2.5e18|2.5e18,  ocrust_init: 2.5e18|2.5e18|2.5e18,  sediment: 2.5e18|2.5e18|2.5e18, ccrust: 2.5e18|2.5e18, weakbox: 2.5e18|2.5e18, serp: 2.5e18|2.5e18|2.5e18, ocrust: 2.5e18|2.5e18|2.5e18, boundwater: 2.5e18|2.5e18|2.5e18, freefluid: 2.5e18|2.5e18, porosity: 2.5e18|2.5e18
+    set Maximum viscosity   =   background: 2.5e23|2.5e23, melth2o: 2.5e23|2.5e23, gabbro: 2.5e23|2.5e23|2.5e23, gabbro_init: 2.5e23|2.5e23|2.5e23, ocrust_init: 2.5e23|2.5e23|2.5e23,  sediment: 2.5e23|2.5e23|2.5e23, ccrust: 2.5e23|2.5e23, weakbox: 2.5e23|2.5e23, serp: 2.5e23|2.5e23|2.5e23, ocrust: 2.5e23|2.5e23|2.5e23, boundwater: 2.5e23|2.5e23|2.5e23, freefluid: 2.5e23|2.5e23, porosity: 2.5e23|2.5e23
+       
+                                                            # Thermal parameters
+    #set Thermal diffusivities  =   1.e-6
+    set Heat capacities        =   750
+    
+    set Phases using material files = background: 0|0, melth2o: 0|0, gabbro: 1|0|0, gabbro_init: 0|0|0,   ocrust_init: 0|0|0,  sediment: 1|0|0, ccrust: 0|0, weakbox: 0|0, serp: 1|0|0, ocrust:1|0|0, boundwater: 0|0|0, freefluid: 0|0, porosity: 0|0
+    set Phases using lookup viscosities = background: 0|0, melth2o: 0|0, gabbro: 1|0|0, gabbro_init: 1|0|0, ocrust_init: 1|0|0, sediment: 1|0|0, ccrust: 0|0, weakbox: 0|0, serp: 2|0|0, ocrust:1|0|0, boundwater: 0|0|0, freefluid: 0|0, porosity: 0|0
+ 
+    # Densities (cf. Currie et al., 2007, Geology)
+    set Densities              =   background: 3300|3300, melth2o: 3300|3300, gabbro: 3300|3300|3300, gabbro_init: 3350|3350|3300,  ocrust_init: 3350|3350|3300,  sediment: 2700|3300|3300, ccrust: 2800|2800, weakbox: 3300|3300, serp: 3000|3300|3300, ocrust: 3300|3300|3300, boundwater: 3300|3300|3300, freefluid: 3300|3300, porosity: 3300|3300
+    set Thermal expansivities  =   background: 3e-5|3e-5, melth2o: 3e-5|3e-5, gabbro: 3e-5|3e-5|3e-5, gabbro_init: 3e-5|3e-5|3e-5,  ocrust_init: 3e-5|3e-5|3e-5,  sediment: 3e-5|3e-5|3e-5, ccrust: 3e-5|3e-5, weakbox: 3e-5|3e-5, serp: 3e-5|3e-5|3e-5, ocrust: 3e-5|3e-5|3e-5, boundwater: 3e-5|3e-5|3e-5, freefluid: 3e-5|3e-5, porosity: 3e-5|3e-5
+    
+    # viscosity-related parameters (mantle, crust)
+    # at ref conditions (1e-15s-1,330km,1694K + adiabatic), this gives:
+    # visc diff = visc disl = 5e20. thus, composition visc = 2.5e20
+    set Viscous flow law            =   composite
+    set Viscosity averaging scheme  =   geometric
+    # dislocation creep (just z < 660 km),
+    # We set the prefactor to a very low value in the lower mantle to effectively turn off dislocation creep.
+    set Prefactors for dislocation creep          = background: 9.153e-20|1e-40, melth2o: 9.153e-20|1e-40, gabbro: 9.153e-20|9.153e-20|1e-40, gabbro_init: 9.153e-20|9.153e-20|1e-40,   ocrust_init: 9.153e-20|9.153e-20|1e-40,   sediment: 9.153e-20|9.153e-20|1e-40,    ccrust: 9.153e-20|1e-40, weakbox: 9.153e-20|1e-40, serp:9.153e-20|9.153e-20|1e-40, ocrust: 9.153e-20|9.153e-20|1e-40, boundwater: 9.153e-20|9.153e-20|1e-40, freefluid: 9.153e-20|1e-40, porosity: 9.153e-20|1e-40
+    set Stress exponents for dislocation creep    = 3.5
+    set Activation energies for dislocation creep = 540.e3
+    set Activation volumes for dislocation creep  = background: 12e-6|0.0, melth2o: 12e-6|0.0, gabbro: 12e-6|0.0|0.0, gabbro_init: 12e-6|0.0|0.0,        ocrust_init: 12e-6|12e-6|0.0,           sediment: 12e-6|12e-6|0.0,         ccrust: 12e-6|0.0, weakbox: 12e-6|0.0, serp: 12e-6|12e-6|0.0, ocrust: 12e-6|12e-6|0.0, boundwater: 12e-6|12e-6|0.0, freefluid: 12e-6|0.0, porosity: 12e-6|0.0
+    
+    # diffusion creep (lm/um viscosity >= 20)
+    set Prefactors for diffusion creep            = background: 9.6e-12|4.8e-13, melth2o: 9.6e-12|4.8e-13, gabbro: 9.6e-12|9.6e-12|4.8e-13, gabbro_init: 9.6e-12|9.6e-12|4.8e-13, ocrust_init: 9.6e-12|9.6e-12|4.8e-13,  sediment: 9.6e-12|9.6e-12|4.8e-13, ccrust: 9.6e-12|4.8e-13, weakbox: 9.6e-12|4.8e-13, serp: 9.6e-12|9.6e-12|4.8e-13, ocrust: 9.6e-12|9.6e-12|4.8e-13, boundwater: 9.6e-12|9.6e-12|4.8e-13, freefluid: 9.6e-12|4.8e-13, porosity: 9.6e-12|4.8e-13
+    set Stress exponents for diffusion creep      = 1
+    set Grain size exponents for diffusion creep  = 0.0
+    set Activation energies for diffusion creep   = 300e3
+    set Activation volumes for diffusion creep    = background: 4e-6|2.5e-6, melth2o: 4e-6|2.5e-6, gabbro: 4e-6|4e-6|2.5e-6, gabbro_init: 4e-6|4e-6|2.5e-6,        ocrust_init: 4e-6|4e-6|2.5e-6,            sediment: 4e-6|4e-6|2.5e-6,       ccrust: 4e-6|2.5e-6, weakbox: 4e-6|2.5e-6, serp: 4e-6|4e-6|2.5e-6, ocrust: 4e-6|4e-6|2.5e-6, boundwater: 4e-6|4e-6|2.5e-6, freefluid: 4e-6|2.5e-6, porosity: 4e-6|2.5e-6
+    
+    # Plasticity parameters using drucker-prager
+    set Cohesions                   =   20e6,20e6,20e6,0e6,0e6,1e6,20e6,1e6,1e6,1e6,20e6,20e6,20e6
+    # Friction angle set to mimic byerlee's law with a coefficient of friction of 0.6 and a prefactor of 0.15
+    set Angles of internal friction =  21.1,21.1,21.1,0.29,0.29,2.29,21.1,0.0,0.57,2.29,21.1,21.1,21.1  
+    set Maximum yield stress        = 0.6e9
+
+    set Include Peierls creep = false   
+ 
+    set Data directory                   = $ASPECT_SOURCE_DIR/data/material-model/steinberger/test-steinberger-compressible/
+    set Material file names              = GABBRO_h2o_aug.txt, GABBRO_h2o_aug.txt, GABBRO_h2o_aug.txt, GABBRO_h2o_aug.txt, MORB_h2o_aug.txt, pel_h2o_2.txt, MORB_h2o_aug.txt, MORB_h2o_aug.txt, WETPERIDOTITE_h2o.txt, MORB_h2o_aug.txt, MORB_h2o_aug.txt
+    set Lateral viscosity file name      = test-viscosity-prefactor.txt
+    set Radial viscosity file name       = test-radial-visc.txt
+    set Bilinear interpolation           = true
+    set Latent heat                      = false
+    set Thermal conductivity             = 1.5
+    set Viscosity lookup phase names     = 0,1,2,3,4
+    set Peierls viscosity lookup phase names = 0,1
+    set Exponential melt weakening factor= 27.0
+    
+    set Activation volumes for dislocation creep lookups   = 0: 0,          1: 0,      2: 2.72e-5, 3: 2.72e-5, 4: 2.72e-5
+    set Activation energies for dislocation creep lookups  = 0: 135000,     1: 244000, 2: 403000,  3: 403000, 4: 403000
+    set Prefactors for dislocation creep lookups           = 0: 6.3096e-36, 1: 6.94e-27, 2: 1.99e-18,  3: 1.99e-18, 4: 1.99e-18
+    set Stress exponents for dislocation creep lookups     = 0: 4,          1: 3.7,    2: 3.5,     3: 3.5, 4: 3.5
+    set Use water fugacity for dislocation creep lookups   = 0: 1,          1: 0,      2: 0,       3: 0, 4: 0
+    set Use melt weakening for dislocation creep lookups   = 0: 0,          1: 1,      2: 1,       3: 1, 4: 1
+
+    set p for Peierls creep lookups   = 0: 1,          1: 1
+    set q for Peierls creep lookups   = 0: 1.18,          1: 1.18
+    set Reference stress for Peierls creep lookups  = 0: 2.42e9,     1: 2.42e9
+    set Activation energies for Peierls creep lookups  = 0: 86300,     1: 86300
+    set Prefactors for Peierls creep lookups           = 0: 4.3739e-22, 1: 4.3739e-22
+    set Stress exponents for Peierls creep lookups     = 0: 2,          1: 2
+    set Use water fugacity for Peierls creep lookups   = 0: 0,          1: 0
+    set Use melt weakening for Peierls creep lookups   = 0: 0,          1: 0
+    set Fitting parameters for Peierls creep lookups   = 0: 0.008,     1: 0.008
+  end
+end
+
+set Pressure normalization = no
+subsection Mesh deformation
+        set Mesh deformation boundary indicators = top: free surface & diffusion
+        set Additional tangential mesh velocity boundary indicators = left,right
+        subsection Free surface
+                set Free surface stabilization theta = 1.0
+                set Surface velocity projection      = normal
+        end
+
+        subsection Diffusion
+                set Hillslope transport coefficient = 1e-7
+        end
+end
+
+#set Pressure normalization = surface
+#set Surface pressure = 0
+#set Adiabatic surface temperature = 1694
+
+
+subsection Gravity model
+  set Model name = vertical 
+
+  subsection Vertical 
+    set Magnitude = 9.81
+  end
+end
+
+
+#-------------------------------------
+#
+
+subsection Postprocess
+  set List of postprocessors = visualization,velocity statistics, basic statistics, temperature statistics,heat flux statistics, depth average, particles
+
+  subsection Particles
+                set List of particle properties = pT path, initial composition, composition
+                set Number of particles = 10000
+                set Time between data output = 0.1
+                set Data output format = vtu
+                set Particle generator name = uniform box
+                subsection Generator
+                       subsection Uniform box
+                                set Maximum x = 3550000
+                                set Minimum x = 2050000
+                                set Maximum y = 1449900
+                                set Minimum y = 1441900
+                       end
+               end
+  end
+
+  subsection Visualization
+    set Interpolate output = false
+    set Output format                 = vtu
+    set List of output variables      = material properties, strain rate, stress second invariant, named additional outputs, vertical heat flux, particle count
+
+
+    subsection Material properties
+
+    set List of material properties   = viscosity, density, thermal conductivity, thermal expansivity, compressibility
+    end
+
+    set Time between graphical output = 0
+  end
+
+  subsection Depth average
+    set Time between graphical output = 5
+    set Number of zones = 10
+  end
+
+end
+
+subsection Heating model
+  set List of model names = adiabatic heating
+end
+
+subsection Checkpointing
+  set Time between checkpoint = 1700
+end
+
+
