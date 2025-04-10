@@ -6,4 +6,4 @@ by
 
 R.K. Stoner, A.F. Holt, G.S. Epstein, V.E. Guevara, C.B. Condit
 
-
+Installation details in INSTALLATION.md
