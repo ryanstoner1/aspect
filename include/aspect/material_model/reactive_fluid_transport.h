@@ -138,6 +138,12 @@ namespace aspect
          */
         void
         create_additional_named_outputs (MaterialModel::MaterialModelOutputs<dim> &out) const override;
+        
+	/**
+	 * Return base model for checking 
+	 */
+        const MaterialModel::Interface<dim> &
+          get_base_model() const;
 
       private:
 

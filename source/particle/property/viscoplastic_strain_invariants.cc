@@ -20,6 +20,7 @@
 
 #include <aspect/particle/property/viscoplastic_strain_invariants.h>
 #include <aspect/material_model/visco_plastic.h>
+#include <aspect/material_model/reactive_fluid_transport.h>
 #include <aspect/initial_composition/interface.h>
 
 
@@ -44,6 +45,7 @@ namespace aspect
       ViscoPlasticStrainInvariant<dim>::initialize ()
       {
         AssertThrow(Plugins::plugin_type_matches<const MaterialModel::ViscoPlastic<dim>>
+                    (this->get_material_model()) || Plugins::plugin_type_matches<const MaterialModel::ReactiveFluidTransport<dim>>
                     (this->get_material_model()),
                     ExcMessage("This initial condition only makes sense in combination "
                                "with the visco_plastic material model."));
@@ -100,9 +102,24 @@ namespace aspect
       ViscoPlasticStrainInvariant<dim>::update_particle_properties(const ParticleUpdateInputs<dim> &inputs,
                                                                    typename ParticleHandler<dim>::particle_iterator_range &particles) const
       {
-        // Find out plastic yielding by calling function in material model.
-        const MaterialModel::ViscoPlastic<dim> &viscoplastic
-          = Plugins::get_plugin_as_type<const MaterialModel::ViscoPlastic<dim>>(this->get_material_model());
+        const MaterialModel::ViscoPlastic<dim> *viscoplastic = nullptr;
+	// Find out plastic yielding by calling function in material model.
+	if (Plugins::plugin_type_matches<const MaterialModel::ViscoPlastic<dim>>
+                    (this->get_material_model()))
+	{
+          viscoplastic
+            = &Plugins::get_plugin_as_type<const MaterialModel::ViscoPlastic<dim>>(this->get_material_model());
+        } else 
+	{
+	  // First get the ReactiveFluidTransport wrapper
+	  const MaterialModel::ReactiveFluidTransport<dim> &reactive_fluid
+	    = Plugins::get_plugin_as_type<const MaterialModel::ReactiveFluidTransport<dim>>(this->get_material_model());
+
+	  // Then access the base model (ViscoPlastic) through the wrapper
+	  // You'll need to add a public getter method to ReactiveFluidTransport
+	  viscoplastic
+	    = &Plugins::get_plugin_as_type<const MaterialModel::ViscoPlastic<dim>>(reactive_fluid.get_base_model()); 
+	}
 
         // Current timestep
         const double dt = this->get_timestep();
@@ -131,7 +148,7 @@ namespace aspect
               }
 
 
-            const bool plastic_yielding = viscoplastic.is_yielding(material_inputs);
+            const bool plastic_yielding = viscoplastic->is_yielding(material_inputs);
 
             // Next take the integrated strain invariant from the prior time step.
             const auto data = particle.get_properties();

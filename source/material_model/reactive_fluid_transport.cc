@@ -171,7 +171,12 @@ namespace aspect
       base_model->update();
     }
 
-
+    template <int dim>
+    const MaterialModel::Interface<dim> &
+    ReactiveFluidTransport<dim>::get_base_model() const
+    {
+      return *base_model;
+    }
 
     template <int dim>
     void
