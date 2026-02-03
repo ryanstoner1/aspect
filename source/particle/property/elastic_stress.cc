@@ -22,6 +22,7 @@
 #include <aspect/material_model/visco_plastic.h>
 #include <aspect/material_model/viscoelastic.h>
 #include <aspect/initial_composition/interface.h>
+#include <aspect/material_model/reactive_fluid_transport.h>
 #include <aspect/particle/world.h>
 
 namespace aspect
@@ -47,7 +48,9 @@ namespace aspect
       {
         AssertThrow((Plugins::plugin_type_matches<const MaterialModel::ViscoPlastic<dim>>(this->get_material_model())
                      ||
-                     Plugins::plugin_type_matches<const MaterialModel::Viscoelastic<dim>>(this->get_material_model())),
+                     Plugins::plugin_type_matches<const MaterialModel::Viscoelastic<dim>>(this->get_material_model())
+		     ||
+		     Plugins::plugin_type_matches<const MaterialModel::ReactiveFluidTransport<dim>>(this->get_material_model())),
                     ExcMessage("This particle property only makes sense in combination with the viscoelastic or visco_plastic material model."));
 
         AssertThrow(this->get_parameters().enable_elasticity == true,
@@ -162,7 +165,17 @@ namespace aspect
                   material_inputs_cell.requested_properties = MaterialModel::MaterialProperties::reaction_rates;
                   material_outputs_cell = MaterialModel::MaterialModelOutputs<dim>(n_particles_in_cell, this->n_compositional_fields());
                   // The reaction rates are stored in additional outputs
-                  this->get_material_model().create_additional_named_outputs(material_outputs_cell);
+		  //
+		  // First get the ReactiveFluidTransport wrapper
+                  const MaterialModel::ReactiveFluidTransport<dim> &reactive_fluid
+                    = Plugins::get_plugin_as_type<const MaterialModel::ReactiveFluidTransport<dim>>(this->get_material_model());
+
+		  // Then access the base model (ViscoPlastic) through the wrapper
+		  // You'll need to add a public getter method to ReactiveFluidTransport
+		  const MaterialModel::ViscoPlastic<dim> &viscoplastic
+		    = Plugins::get_plugin_as_type<const MaterialModel::ViscoPlastic<dim>>(reactive_fluid.get_base_model());
+
+                  viscoplastic.create_additional_named_outputs(material_outputs_cell);
 
                   const std::shared_ptr<MaterialModel::ReactionRateOutputs<dim>> reaction_rate_outputs
                     = material_outputs_cell.template get_additional_output_object<MaterialModel::ReactionRateOutputs<dim>>();
@@ -174,8 +187,8 @@ namespace aspect
                                        old_solution_values.end());
 
                   EvaluationFlags::EvaluationFlags evaluation_flags_union = EvaluationFlags::nothing;
-                  for (const auto flag : evaluation_flags)
-                    evaluation_flags_union |= flag;
+                  for (unsigned int i=0; i<evaluation_flags.size(); ++i)
+                    evaluation_flags_union |= evaluation_flags[i];
 
                   // Update evaluators to the current cell
                   if (evaluation_flags_union & (EvaluationFlags::values | EvaluationFlags::gradients))
@@ -238,9 +251,7 @@ namespace aspect
                       material_inputs_cell.strain_rate[i] = symmetrize (grad_u);
                     }
 
-                  // Evaluate the material model to get the reaction rates
-                  // for all the particles in the current cell.
-                  this->get_material_model().evaluate (material_inputs_cell,material_outputs_cell);
+                  viscoplastic.evaluate (material_inputs_cell,material_outputs_cell);
 
                   // Update all particles in the current cell.
                   particle = particles_in_cell.begin();
@@ -337,7 +348,16 @@ namespace aspect
               grad_u[d] = inputs.gradients[p][d];
             material_inputs.strain_rate[0] = symmetrize (grad_u);
 
-            this->get_material_model().evaluate (material_inputs,material_outputs);
+// First get the ReactiveFluidTransport wrapper
+const MaterialModel::ReactiveFluidTransport<dim> &reactive_fluid
+  = Plugins::get_plugin_as_type<const MaterialModel::ReactiveFluidTransport<dim>>(this->get_material_model());
+
+// Then access the base model (ViscoPlastic) through the wrapper
+// You'll need to add a public getter method to ReactiveFluidTransport
+const MaterialModel::ViscoPlastic<dim> &viscoplastic
+  = Plugins::get_plugin_as_type<const MaterialModel::ViscoPlastic<dim>>(reactive_fluid.get_base_model());
+
+            viscoplastic.evaluate (material_inputs,material_outputs);
 
             // Apply the stress rotation to the ve_stress_* fields, not the ve_stress_*_old fields.
             for (unsigned int i = 0; i < SymmetricTensor<2,dim>::n_independent_components ; ++i)
