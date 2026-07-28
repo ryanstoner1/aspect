@@ -83,7 +83,7 @@ namespace aspect
            * parse_parameters() function. Users can choose between different schemes.
            * none: no viscosity change
            * hk04_olivine_hydration: calculate the viscosity change due to hydrogen
-           * incorporation into olivine using Hirth & Kohlstaedt 2004 10.1029/138GM06.
+           * incorporation into olivine using Hirth & Kohlstedt 2004 10.1029/138GM06.
            * This method requires a composition called 'bound_fluid' which tracks the wt%
            * water in the solid, which is used to compute an atomic ratio of H/Si ppm
            * assuming 90 mol% forsterite and 10 mol% fayalite, and finally calculates
@@ -91,19 +91,40 @@ namespace aspect
            * The prefactor for a given compositional field is multiplied with a
            * base_viscosity value provided by the material model, which is then returned
            * to the material model.
+           * interface weakening: calculate the viscosity change due to the presence of
+           * a sub-grid scale weak layer present at the interface of two other compositions.
            */
           enum ViscosityPrefactorScheme
           {
             none,
             hk04_olivine_hydration,
-          } viscosity_prefactor_scheme;
+            interface_weakening,
+          };
+          /**
+           *  This variable is read from the parameter file through a parameter called 'Viscosity prefactor scheme'.
+           */
+          ViscosityPrefactorScheme viscosity_prefactor_scheme;
 
           // Initialize variables for the water fugacity calculation, from HK04
+          /**
+           *  This variable is read from the parameter file through a parameter called 'Water fugacity exponents for diffusion creep'.
+           */
           std::vector<double> diffusion_water_fugacity_exponents;
+          /**
+           *  This variable is read from the parameter file through a parameter called 'Water fugacity exponents for dislocation creep'.
+           */
           std::vector<double> dislocation_water_fugacity_exponents;
+          /**
+           *  This variable is read from the parameter file through a parameter called 'Minimum mass fraction bound water content for fugacity'.
+           */
           std::vector<double> minimum_mass_fraction_water_for_dry_creep;
 
-          // From Hirth & Kohlstaedt 2004, equation 6
+          // Variables for the interface weakening scheme
+          std::vector<std::string> weakening_field_names;
+          std::vector<double> interface_weakening_factors;
+          double interface_weakening_threshold;
+
+          // From Hirth & Kohlstedt 2004, equation 6
           const double A_H2O = 2.6e-5; // 1/Pa
           const double activation_energy_H2O = 40e3; // J/mol/K
           const double activation_volume_H2O = 10e-6; // m^3/mol
