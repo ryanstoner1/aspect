@@ -403,6 +403,8 @@ namespace aspect
         = scratch.material_model_outputs.template get_additional_output_object<MaterialModel::MeltOutputs<dim>>();
       const std::shared_ptr<const MaterialModel::AdditionalMaterialOutputsStokesRHS<dim>> force
         = scratch.material_model_outputs.template get_additional_output_object<MaterialModel::AdditionalMaterialOutputsStokesRHS<dim>>();
+      const std::shared_ptr<const MaterialModel::ElasticOutputs<dim>> elastic_outputs
+        = scratch.material_model_outputs.template get_additional_output_object<MaterialModel::ElasticOutputs<dim>>();
 
       const double pressure_scaling = this->get_pressure_scaling();
 
@@ -441,6 +443,10 @@ namespace aspect
                     {
                       scratch.grads_phi_u[i_stokes] = scratch.finite_element_values[introspection.extractors.velocities].symmetric_gradient(i,q);
                       scratch.div_phi_u[i_stokes]   = scratch.finite_element_values[introspection.extractors.velocities].divergence (i, q);
+                    }
+                  else if (this->get_parameters().enable_elasticity)
+                    {
+                      scratch.grads_phi_u[i_stokes] = scratch.finite_element_values[introspection.extractors.velocities].symmetric_gradient(i,q);
                     }
                   ++i_stokes;
                 }
@@ -520,6 +526,10 @@ namespace aspect
                                    )
                                    * JxW;
 
+              if (elastic_outputs != nullptr && this->get_parameters().enable_elasticity)
+                data.local_rhs(i) += (elastic_outputs->elastic_force[q] * scratch.grads_phi_u[i])
+                                     * JxW;
+
               if (scratch.rebuild_stokes_matrix)
                 for (unsigned int j=0; j<stokes_dofs_per_cell; ++j)
                   {
@@ -550,6 +560,29 @@ namespace aspect
             }
         }
 
+    }
+
+
+
+    template <int dim>
+    void
+    MeltStokesSystem<dim>::
+    create_additional_material_model_outputs(MaterialModel::MaterialModelOutputs<dim> &outputs) const
+    {
+      MeltInterface<dim>::create_additional_material_model_outputs(outputs);
+      const unsigned int n_points = outputs.n_evaluation_points();
+
+      if (this->get_parameters().enable_elasticity &&
+          !outputs.template has_additional_output_object<MaterialModel::ElasticOutputs<dim>>())
+        {
+          outputs.additional_outputs.push_back(
+            std::make_unique<MaterialModel::ElasticOutputs<dim>> (n_points));
+        }
+
+      Assert(!this->get_parameters().enable_elasticity
+             ||
+             outputs.template get_additional_output_object<MaterialModel::ElasticOutputs<dim>>()->elastic_force.size()
+             == n_points, ExcInternalError());
     }
 
 
@@ -1844,12 +1877,38 @@ namespace aspect
   void
   MeltHandler<dim>::initialize () const
   {
-    // The additional terms in the temperature systems have not been ported
+    // The additional terms in the temperature system have not been ported
     // to the DG formulation:
-    AssertThrow(!this->get_parameters().use_discontinuous_temperature_discretization &&
-                !this->get_parameters().have_discontinuous_composition_discretization,
-                ExcMessage("Using discontinuous elements for temperature "
-                           "or composition in models with melt transport is currently not implemented.") );
+    AssertThrow(!this->get_parameters().use_discontinuous_temperature_discretization,
+                ExcMessage("Using discontinuous elements for temperature in models "
+                           "with melt transport is currently not implemented.") );
+
+    // Discontinuous elements for the compositional fields are likewise not
+    // implemented for melt transport, with the exception of the fields that
+    // represent elastic stress tensor components. Elasticity requires those to
+    // use a discontinuous discretization, so they are permitted here while all other
+    // discontinuous compositional fields (for example the porosity) are not.
+    {
+      const std::vector<bool> &composition_dg =
+        this->get_parameters().use_discontinuous_composition_discretization;
+      std::vector<bool> is_stress_field(composition_dg.size(), false);
+      if (this->introspection().composition_type_exists(CompositionalFieldDescription::stress))
+        for (const unsigned int c : this->introspection().get_indices_for_fields_of_type(CompositionalFieldDescription::stress))
+          is_stress_field[c] = true;
+
+      for (unsigned int c=0; c<composition_dg.size(); ++c)
+        AssertThrow(!composition_dg[c] || is_stress_field[c],
+                    ExcMessage("Using discontinuous elements for compositional fields in "
+                               "models with melt transport is currently only implemented "
+                               "for fields that represent elastic stress tensor components.") );
+    }
+
+    if (this->get_parameters().enable_elasticity)
+      AssertThrow(this->introspection().compositional_name_exists("ve_stress_xx") &&
+                  (this->get_parameters().mapped_particle_properties).count(this->introspection().compositional_index_for_name("ve_stress_xx")),
+                  ExcMessage("Elasticity combined with melt transport currently requires viscoelastic stresses are tracked on particles (using the "
+                             "particle property 'elastic stress' and mapped particle properties), not on compositional fields."));
+
     if (melt_parameters.use_discontinuous_p_c)
       AssertThrow(!this->model_has_prescribed_stokes_solution(),
                   ExcMessage("You can not use a discontinuous p_c in a model "
