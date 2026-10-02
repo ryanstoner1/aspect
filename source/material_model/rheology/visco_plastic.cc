@@ -325,7 +325,7 @@ namespace aspect
                                                                           stress_0_advected,
                                                                           stress_old,
                                                                           non_yielding_viscosity,
-                                                                          elastic_shear_modulus);
+                                                                          elastic_shear_modulus*weakening_factors[0]);
 
                     effective_edot_ii = std::max(std::sqrt(std::max(-Utilities::Tensors::consistent_second_invariant_of_deviatoric_tensor(effective_strain_rate), 0.)),
                                                  min_strain_rate);

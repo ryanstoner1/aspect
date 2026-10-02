@@ -85,6 +85,19 @@ namespace aspect
           std::vector<std::pair<std::string, unsigned int>>
           get_property_information() const override;
 
+          /**
+           * Declare the parameters this class takes through input files.
+           */
+          static
+          void
+          declare_parameters (ParameterHandler &prm);
+ 
+          /**
+           * Read the parameters this class declares from the parameter file.
+           */
+          void
+          parse_parameters (ParameterHandler &prm) override;
+
         private:
           unsigned int n_components;
 
@@ -98,6 +111,52 @@ namespace aspect
            * but it is currently not used in a threaded context.
            */
           mutable MaterialModel::MaterialModelInputs<dim> material_inputs;
+
+          /**
+           * Whether newly-deposited particles above the y-threshold receive
+           * a per-particle random plastic strain seed (true), or the standard
+           * IC-based seed (false, default — recovers stock behavior).
+           */
+          bool use_random_sediment_seed;
+ 
+          /**
+           * Lower bound of the uniform distribution from which the
+           * per-particle random plastic strain seed is drawn.
+           */
+          double random_seed_min;
+ 
+          /**
+           * Upper bound of the uniform distribution from which the
+           * per-particle random plastic strain seed is drawn.
+           */
+          double random_seed_max;
+ 
+          /**
+           * Particles created at t > 0 whose initial vertical coordinate
+           * exceeds this threshold are treated as freshly-deposited sediment
+           * and receive the random seed. Below the threshold, AMR/refinement
+           * events fall back to the standard IC-based seed.
+           */
+          double random_seed_y_threshold;
+ 
+          /**
+           * Integer base seed combined with the particle position in the
+           * deterministic hash. Change to obtain a different ensemble
+           * realization while keeping per-rank reproducibility.
+           */
+          unsigned int random_seed_base;
+ 
+          /**
+           * Compute a deterministic per-particle random plastic strain value
+           * from the particle's birth position. Implemented as a SplitMix64-
+           * style hash of the quantized coordinates mixed with @ref
+           * random_seed_base, drawn through std::mt19937_64 onto the interval
+           * [@ref random_seed_min, @ref random_seed_max]. The output depends
+           * only on @p position and the seeding parameters, not on MPI rank,
+           * particle ordering, or load-balancing history.
+           */
+          double random_from_position (const Point<dim> &position) const;
+
       };
     }
   }

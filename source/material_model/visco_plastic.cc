@@ -220,6 +220,54 @@ namespace aspect
                 {
                   isostrain_viscosities =
                     rheology->calculate_isostrain_viscosities(in, i, volume_fractions, phase_function_values, n_phase_transitions_for_each_chemical_composition);
+
+
+              if (this->introspection().compositional_name_exists("fault_viscosity_field") &&
+                  this->introspection().compositional_name_exists("fault_zone"))
+                {
+                  const unsigned int fv_idx =
+                    this->introspection().compositional_index_for_name("fault_viscosity_field");
+                  const unsigned int fz_idx =
+                    this->introspection().compositional_index_for_name("fault_zone");
+
+                  const double fault_visc = in.composition[i][fv_idx];
+                  const double fault_zone = in.composition[i][fz_idx];
+
+                  // fault_visc > 0: viscosity or both mode -- apply override.
+                  //                   // fault_visc < 0: body force only mode   -- skip override.
+                  if (fault_zone > 0.5 && fault_visc > 0.0)
+                   out.viscosities[i] = out.viscosities[i] = std::max(1e17, std::min(1e24, fault_visc)); //std::max(min_eta_value,std::min(max_eta_value, fault_visc));
+                 }
+                  
+//                                                                                                                    // where min_eta_value and max_eta_value are the existing
+                  //                                                                                                                                      // rheology min/max viscosity members, e.g.:
+                  //                                                                                                                                                        //   rheology->min_strain_rate  (use as floor proxy, or)
+                  //                                                                                                                                                                          //   parameters.min_viscosity   (if accessible)
+                  //                                                                                                                                                                                            // The simplest correct form is just:
+                  //                                                                                                                                                                                                              //   out.viscosities[i] = std::max(1e17, std::min(1e24, fault_visc));
+                  //                                                                                                                                                                                                                                // or use the already-clamped value from the particle plugin
+                  //                                                                                                                                                                                                                                                  // (which applies its own min/max bounds).
+
+
+             // if (this->introspection().compositional_name_exists("fault_viscosity_field") &&
+                //  this->introspection().compositional_name_exists("fault_zone"))
+                //{
+                 // const unsigned int fv_idx =
+                 //   this->introspection().compositional_index_for_name("fault_viscosity_field");
+                 // const unsigned int fz_idx =
+                 //   this->introspection().compositional_index_for_name("fault_zone");
+ 
+                 // const double fault_visc = in.composition[i][fv_idx];
+                 // const double fault_zone = in.composition[i][fz_idx];
+ 
+                 // // Only override inside the fault zone and when the particle
+                 // //                   // value is physically reasonable (positive and within bounds).
+                 //          if (fault_zone > 0.5 && fault_visc > 0.0)
+                 //               {
+                 //               out.viscosities[i] = std::max (rheology->min_strain_rate,std::min (1e24, fault_visc));
+                 //               }
+                 //}
+
                 }
 
               // The isostrain condition implies that the viscosity averaging should be arithmetic (see above).
@@ -302,6 +350,25 @@ namespace aspect
                 plastic_dilation->dilation_rhs_term[i] = dilation_rhs_term;
               else
                 plastic_dilation->dilation_rhs_term[i] = dilation_lhs_term * in.pressure[i];
+            }
+        }
+
+
+      if (this->introspection().compositional_name_exists("fault_force_x"))
+        {
+          const std::shared_ptr<MaterialModel::AdditionalMaterialOutputsStokesRHS<dim>>
+          force_out = out.template
+            get_additional_output_object<MaterialModel::AdditionalMaterialOutputsStokesRHS<dim>>();
+
+          if (force_out != nullptr)
+            {
+              const unsigned int fx_idx =
+                this->introspection().compositional_index_for_name("fault_force_x");
+              // fault_force_x, fault_force_y (, fault_force_z) are declared
+              // consecutively so fx_idx + d gives the right index.
+              for (unsigned int i = 0; i < in.n_evaluation_points(); ++i)
+                for (unsigned int d = 0; d < dim; ++d)
+                  force_out->rhs_u[i][d] += in.composition[i][fx_idx + d];
             }
         }
 
@@ -479,6 +546,16 @@ namespace aspect
 
       if (this->get_parameters().enable_elasticity)
         rheology->elastic_rheology.create_elastic_additional_outputs(out);
+
+      if (this->introspection().compositional_name_exists("fault_force_x") &&
+          out.template has_additional_output_object
+            <MaterialModel::AdditionalMaterialOutputsStokesRHS<dim>>() == false)
+        {
+          out.additional_outputs.push_back(
+            std::make_unique<MaterialModel::AdditionalMaterialOutputsStokesRHS<dim>>
+              (out.n_evaluation_points()));
+        }
+
     }
 
   }

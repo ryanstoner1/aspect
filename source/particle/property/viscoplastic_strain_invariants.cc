@@ -34,7 +34,12 @@ namespace aspect
       ViscoPlasticStrainInvariant<dim>::ViscoPlasticStrainInvariant ()
         :
         n_components(0),
-        material_inputs(1,0)
+        material_inputs(1,0),
+        use_random_sediment_seed(false),
+        random_seed_min(0.0),
+        random_seed_max(1.0),
+        random_seed_y_threshold(0.0),
+        random_seed_base(42)
       {}
 
 
@@ -78,22 +83,59 @@ namespace aspect
       ViscoPlasticStrainInvariant<dim>::initialize_one_particle_property(const Point<dim> &position,
                                                                          std::vector<double> &data) const
       {
-        // Give each strain field its initial composition if one is prescribed.
+
+        const bool use_random_seed = (use_random_sediment_seed
+                                      && this->get_time() > 0.0
+                                      && position[dim-1] > random_seed_y_threshold);
+
         if (this->introspection().compositional_name_exists("plastic_strain"))
-          data.push_back(this->get_initial_composition_manager().initial_composition(position,this->introspection().compositional_index_for_name("plastic_strain")));
+          data.push_back(use_random_seed ? random_from_position(position)
+                                         : this->get_initial_composition_manager().initial_composition(position,this->introspection().compositional_index_for_name("plastic_strain")));
+
+        // Give each strain field its initial composition if one is prescribed.
+        //if (this->introspection().compositional_name_exists("plastic_strain"))
+        //  data.push_back(this->get_initial_composition_manager().initial_composition(position,this->introspection().compositional_index_for_name("plastic_strain")));
 
         if (this->introspection().compositional_name_exists("viscous_strain"))
           data.push_back(this->get_initial_composition_manager().initial_composition(position,this->introspection().compositional_index_for_name("viscous_strain")));
 
         if (this->introspection().compositional_name_exists("total_strain"))
-          data.push_back(this->get_initial_composition_manager().initial_composition(position,this->introspection().compositional_index_for_name("total_strain")));
-
+          data.push_back(use_random_seed ? random_from_position(position)
+                                         : this->get_initial_composition_manager().initial_composition(position,this->introspection().compositional_index_for_name("total_strain")));
+ 
         if (this->introspection().compositional_name_exists("noninitial_plastic_strain"))
-          data.push_back(this->get_initial_composition_manager().initial_composition(position,this->introspection().compositional_index_for_name("noninitial_plastic_strain")));
+          data.push_back(use_random_seed ? random_from_position(position)
+                                         : this->get_initial_composition_manager().initial_composition(position,this->introspection().compositional_index_for_name("noninitial_plastic_strain")));
+
+        //if (this->introspection().compositional_name_exists("total_strain"))
+        //  data.push_back(this->get_initial_composition_manager().initial_composition(position,this->introspection().compositional_index_for_name("total_strain")));
+
+        //if (this->introspection().compositional_name_exists("noninitial_plastic_strain"))
+        //  data.push_back(this->get_initial_composition_manager().initial_composition(position,this->introspection().compositional_index_for_name("noninitial_plastic_strain")));
 
       }
 
-
+      template <int dim>
+      double
+      ViscoPlasticStrainInvariant<dim>::random_from_position (const Point<dim> &position) const
+      {
+        std::uint64_t hash = 0x9e3779b97f4a7c15ULL ^ static_cast<std::uint64_t>(random_seed_base);
+        for (unsigned int d = 0; d < dim; ++d)
+          {
+            const std::int64_t scaled = static_cast<std::int64_t>(std::round(position[d] * 1.0e3));
+            std::uint64_t k = static_cast<std::uint64_t>(scaled);
+            k ^= k >> 33;
+            k *= 0xff51afd7ed558ccdULL;
+            k ^= k >> 33;
+            k *= 0xc4ceb9fe1a85ec53ULL;
+            k ^= k >> 33;
+            hash ^= k + 0x9e3779b97f4a7c15ULL + (hash << 6) + (hash >> 2);
+          }
+ 
+        std::mt19937_64 generator(hash);
+        std::uniform_real_distribution<double> distribution(random_seed_min, random_seed_max);
+        return distribution(generator);
+      }
 
       template <int dim>
       void
@@ -104,10 +146,12 @@ namespace aspect
         const MaterialModel::ViscoPlastic<dim> &viscoplastic
           = Plugins::get_plugin_as_type<const MaterialModel::ViscoPlastic<dim>>(this->get_material_model());
 
+
         // Current timestep
         const double dt = this->get_timestep();
         const unsigned int data_position = this->data_position;
 
+	const unsigned int tag_index = data_position + n_components;
         unsigned int p = 0;
         for (auto &particle: particles)
           {
@@ -138,6 +182,40 @@ namespace aspect
 
             // Calculate strain rate second invariant
             const double edot_ii = std::sqrt(std::max(-Utilities::Tensors::consistent_second_invariant_of_deviatoric_tensor(Utilities::Tensors::consistent_deviator(material_inputs.strain_rate[0])), 0.));
+
+
+            if (use_random_sediment_seed
+                && data[tag_index] < 0.5
+                && dt > 0
+                && material_inputs.position[0][dim-1] > random_seed_y_threshold)
+              {
+                const double random_value = random_from_position(material_inputs.position[0]);
+
+
+                unsigned int offset = 0;
+                if (this->introspection().compositional_name_exists("plastic_strain"))
+                  {
+                    data[data_position + offset] = random_value;
+                    ++offset;
+                  }
+                if (this->introspection().compositional_name_exists("viscous_strain"))
+                  {
+++offset;
+                  }
+                if (this->introspection().compositional_name_exists("total_strain"))
+                  {
+                    data[data_position + offset] = random_value;
+                    ++offset;
+                  }
+                if (this->introspection().compositional_name_exists("noninitial_plastic_strain"))
+                  {
+                    data[data_position + offset] = random_value;
+                    ++offset;
+                  }
+ 
+                // Mark this particle as tagged so we never re-randomize.
+                    data[tag_index] = 1.0;
+              }
 
             // Calculate strain invariant magnitude over the last time step
             const double strain_update = dt*edot_ii;
@@ -226,6 +304,64 @@ namespace aspect
           property_information.emplace_back("noninitial_plastic_strain", 1);
 
         return property_information;
+      }
+
+
+ 
+      template <int dim>
+      void
+      ViscoPlasticStrainInvariant<dim>::declare_parameters (ParameterHandler &prm)
+      {
+        prm.enter_subsection("Viscoplastic strain invariants");
+        {
+          prm.declare_entry ("Use random sediment plastic strain seed", "false",
+                             Patterns::Bool(),
+                             "If true, particles whose initial position is above "
+                             "the y-threshold and that are created after t=0 receive "
+                             "a per-particle random plastic strain drawn from a "
+                             "uniform distribution. The value is a deterministic "
+                             "hash of position, so it is reproducible across MPI "
+                             "ranks and restarts.");
+          prm.declare_entry ("Random sediment seed minimum", "0.0",
+                             Patterns::Double(0.),
+                             "Lower bound of the uniform distribution from which "
+                             "the per-particle random plastic strain seed is drawn.");
+          prm.declare_entry ("Random sediment seed maximum", "1.0",
+                             Patterns::Double(0.),
+                             "Upper bound of the uniform distribution from which "
+                             "the per-particle random plastic strain seed is drawn.");
+          prm.declare_entry ("Random sediment seed y threshold", "0.0",
+                             Patterns::Double(),
+                             "Particles initialized above this vertical coordinate "
+                             "(model units) after t=0 are treated as sediment and "
+                             "receive the random seed.");
+          prm.declare_entry ("Random sediment seed base", "42",
+                             Patterns::Integer(0),
+                             "Integer base seed combined with the particle position "
+                             "in the deterministic hash. Change to obtain a different "
+                             "ensemble realization.");
+        }
+        prm.leave_subsection();
+      }
+ 
+ 
+ 
+      template <int dim>
+      void
+      ViscoPlasticStrainInvariant<dim>::parse_parameters (ParameterHandler &prm)
+      {
+        prm.enter_subsection("Viscoplastic strain invariants");
+        {
+          use_random_sediment_seed = prm.get_bool   ("Use random sediment plastic strain seed");
+          random_seed_min          = prm.get_double ("Random sediment seed minimum");
+          random_seed_max          = prm.get_double ("Random sediment seed maximum");
+          random_seed_y_threshold  = prm.get_double ("Random sediment seed y threshold");
+          random_seed_base         = static_cast<unsigned int>(prm.get_integer("Random sediment seed base"));
+ 
+          AssertThrow(random_seed_max >= random_seed_min,
+                      ExcMessage("Random sediment seed maximum must be >= minimum."));
+        }
+        prm.leave_subsection();
       }
     }
   }
