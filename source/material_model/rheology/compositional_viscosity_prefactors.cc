@@ -94,15 +94,17 @@ namespace aspect
             }
             case interface_weakening:
             {
-              const unsigned int comp_field_A_idx = this->introspection().compositional_index_for_name(weakening_field_names[0]);
-              const unsigned int comp_field_B_idx = this->introspection().compositional_index_for_name(weakening_field_names[1]);
-
-              const double comp_field_A = in.composition[q][comp_field_A_idx];
-              const double comp_field_B = in.composition[q][comp_field_B_idx];
-              const double union_comp_field = std::min(comp_field_A, comp_field_B);
-
-              if (union_comp_field > interface_weakening_threshold)
-                factored_viscosities *= interface_weakening_factors[composition_index];
+              // Weaken (once) if both fields of ANY listed pair are present at this point.
+              for (const auto &pair : weakening_field_pairs)
+                {
+                  const double comp_field_A = in.composition[q][this->introspection().compositional_index_for_name(pair.first)];
+                  const double comp_field_B = in.composition[q][this->introspection().compositional_index_for_name(pair.second)];
+                  if (std::min(comp_field_A, comp_field_B) > interface_weakening_threshold)
+                    {
+                      factored_viscosities *= interface_weakening_factors[composition_index];
+                      break;
+                    }
+                }
 
               break;
             }
@@ -152,8 +154,10 @@ namespace aspect
 
         prm.declare_entry("Interface weakening compositions", "",
                           Patterns::List(Patterns::Anything()),
-                          "List of exactly two compositional field names. If both fields "
-                          "exceed the threshold at the same point, the viscosity is scaled. "
+                          "Either a list of exactly two compositional field names, or a list of "
+                          "pairs written as 'field_A:field_B' (e.g. 'crust_upper:mantle_lithosphere, "
+                          "sediment:mantle_lithosphere'). If both fields of any pair exceed the "
+                          "threshold at the same point, the viscosity is scaled (once). "
                           "Only used by the 'interface weakening' viscosity prefactor scheme. Units: none.");
 
         prm.declare_entry ("Interface weakening threshold", "1e-2",
@@ -209,8 +213,30 @@ namespace aspect
           }
         if (prm.get ("Viscosity prefactor scheme") == "interface weakening")
           {
-            weakening_field_names = Utilities::split_string_list(prm.get("Interface weakening compositions"));
-            AssertThrow(weakening_field_names.size() == 2, ExcMessage("'Interface weakening compositions' must list exactly two field names. Instead, you have listed: " + Utilities::to_string(weakening_field_names.size()) + "."));
+            const std::vector<std::string> entries = Utilities::split_string_list(prm.get("Interface weakening compositions"));
+            weakening_field_pairs.clear();
+            bool all_pairs = !entries.empty();
+            for (const auto &e : entries)
+              all_pairs = all_pairs && (e.find(':') != std::string::npos);
+            if (all_pairs)
+              for (const auto &e : entries)
+                {
+                  const std::vector<std::string> ab = Utilities::split_string_list(e, ':');
+                  AssertThrow(ab.size() == 2, ExcMessage("'Interface weakening compositions': the entry '" + e
+                                                         + "' must have the form 'field_A:field_B'."));
+                  weakening_field_pairs.emplace_back(ab[0], ab[1]);
+                }
+            else
+              {
+                AssertThrow(entries.size() == 2, ExcMessage("'Interface weakening compositions' must list exactly two field names, "
+                                                            "or pairs written as 'field_A:field_B'. Instead, you have listed: "
+                                                            + Utilities::to_string(entries.size()) + " entries."));
+                weakening_field_pairs.emplace_back(entries[0], entries[1]);
+              }
+            for (const auto &pair : weakening_field_pairs)
+              for (const std::string &name : {pair.first, pair.second})
+                AssertThrow(this->introspection().compositional_name_exists(name),
+                            ExcMessage("'Interface weakening compositions': there is no compositional field named '" + name + "'."));
             std::vector<std::string> compositional_field_names = this->introspection().get_composition_names();
             std::vector<std::string> chemical_field_names = this->introspection().chemical_composition_field_names();
             compositional_field_names.insert(compositional_field_names.begin(), "background");

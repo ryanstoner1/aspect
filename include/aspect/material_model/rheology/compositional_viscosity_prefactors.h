@@ -21,6 +21,7 @@
 #ifndef _aspect_material_model_rheology_compositional_viscosity_prefactors_h
 #define _aspect_material_model_rheology_compositional_viscosity_prefactors_h
 
+#include <utility>
 #include <aspect/global.h>
 #include <aspect/material_model/interface.h>
 #include <aspect/simulator_access.h>
@@ -120,7 +121,8 @@ namespace aspect
           std::vector<double> minimum_mass_fraction_water_for_dry_creep;
 
           // Variables for the interface weakening scheme
-          std::vector<std::string> weakening_field_names;
+          // Pairs of compositional fields whose shared presence triggers interface weakening
+          std::vector<std::pair<std::string, std::string>> weakening_field_pairs;
           std::vector<double> interface_weakening_factors;
           double interface_weakening_threshold;
 
